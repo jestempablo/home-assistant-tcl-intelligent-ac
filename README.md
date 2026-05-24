@@ -94,6 +94,7 @@ Timer/reservation is intentionally not exposed yet. The APK maps those features 
 - Other brands and models may work if they use the same BroadLink/DNA AC profile, but they are not tested.
 - Cloud control is not implemented. Cloud is used only to bootstrap local control.
 - Device keys, MAC addresses, and logs should be treated as private if you share diagnostics publicly.
+- HACS and Home Assistant may cache brand images. If the icon does not show immediately after installation, restart Home Assistant and refresh the browser or mobile app.
 
 ## Troubleshooting
 
