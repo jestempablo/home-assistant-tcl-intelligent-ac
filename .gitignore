@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.apk
+
+build/
+decompiled/
+logs/
+pulled/
+.pycache/
+
+config/*.local.json

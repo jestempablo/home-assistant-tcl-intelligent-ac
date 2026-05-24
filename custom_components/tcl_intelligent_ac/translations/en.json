@@ -1,0 +1,52 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "TCL Intelligent AC",
+        "description": "Choose how to add TCL Intelligent AC devices for local LAN control.",
+        "data": {
+          "setup_method": "Setup method"
+        }
+      },
+      "cloud": {
+        "title": "Intelligent AC account",
+        "description": "Log in once to fetch device MAC addresses and keys. The password is not stored.",
+        "data": {
+          "username": "Email or phone",
+          "password": "Password",
+          "region": "Region"
+        }
+      },
+      "select": {
+        "title": "Select devices",
+        "description": "Choose the devices to add.",
+        "data": {
+          "selection": "Devices"
+        }
+      },
+      "manual": {
+        "title": "Manual LAN setup",
+        "description": "Add a TCL Intelligent AC device for local LAN control.",
+        "data": {
+          "name": "Name",
+          "host": "Host",
+          "mac": "MAC address",
+          "key": "Device key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the device with these details.",
+      "cloud_error": "Could not log in or fetch devices from Intelligent AC. Check the Home Assistant log for the exact cloud response.",
+      "invalid_auth": "The Intelligent AC login service rejected these credentials.",
+      "too_many_attempts": "The Intelligent AC login service temporarily blocked login attempts. Wait a while and try again.",
+      "host_not_found": "The device was found in the account, but its LAN host could not be resolved.",
+      "no_devices": "No supported TCL AC devices were found in this account.",
+      "no_devices_selected": "Select at least one device.",
+      "already_configured": "This device is already configured."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  }
+}

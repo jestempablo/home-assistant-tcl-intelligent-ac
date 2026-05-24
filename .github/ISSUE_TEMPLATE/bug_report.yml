@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a problem with TCL Intelligent AC for Home Assistant
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue. This integration is maintained on a best-effort basis and has only been tested with TCL XA71I devices in the United States / Other region.
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.5.0"
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "0.3.2"
+    validations:
+      required: true
+
+  - type: input
+    id: device_model
+    attributes:
+      label: AC model
+      placeholder: "TCL XA71I"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: Intelligent AC account region
+      options:
+        - United States / Other
+        - Europe
+        - China
+        - Russia
+        - Manual LAN setup
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the behavior, the expected behavior, and when it started.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Home Assistant logs
+      description: Do not paste passwords, tokens, per-device keys, or unredacted packet captures. Redact MAC addresses if you do not want them public.
+      render: text

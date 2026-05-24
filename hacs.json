@@ -1,0 +1,6 @@
+{
+  "name": "TCL Intelligent AC",
+  "homeassistant": "2025.1.0",
+  "render_readme": true,
+  "domains": ["climate", "switch", "select", "sensor", "binary_sensor"]
+}
