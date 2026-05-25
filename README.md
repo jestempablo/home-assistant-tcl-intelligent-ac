@@ -26,7 +26,7 @@ Maintenance note: this project is maintained on a best-effort basis. Issues and 
 
 For cloud-assisted setup, create and configure your device in the official **Intelligent AC** app first. LAN discovery setup can add already-paired devices without logging in to Intelligent AC.
 
-During testing, the working region was **United States / Other**. The **Europe** region appeared unavailable or disabled in the app setup flow and is not known to work here. China and Russia are present in the app but have not been tested.
+During testing, the working region was **United States / Other**. The **Europe** region may let the app setup continue without a clear error, but device pairing did not work in testing. Switching the same setup to **United States / Other** made pairing and Home Assistant setup work. Older Intelligent AC manuals still document a European server, but this project has not found a working EU setup path. China and Russia are present in the app but have not been tested.
 
 If the app asks for an activation code, choose **Enter manually** and enter:
 
@@ -103,7 +103,7 @@ Timer/reservation is intentionally not exposed yet. The APK maps those features 
 ## Known limitations
 
 - Cloud-assisted setup is confirmed only for the United States / Other region.
-- EU setup is not known to work.
+- EU setup may fail during device pairing without a clear app error; use United States / Other unless you have confirmed another region works for your device.
 - LAN discovery setup requires the device to already be paired to Wi-Fi and reachable from Home Assistant.
 - LAN discovery may require entering known device IP addresses if broadcast or subnet scanning is blocked by your network.
 - Other brands and models may work if they use the same BroadLink/DNA AC profile, but they are not tested.
