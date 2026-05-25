@@ -4,8 +4,19 @@
   "codeowners": ["@jestempablo"],
   "config_flow": true,
   "documentation": "https://github.com/jestempablo/home-assistant-tcl-intelligent-ac",
+  "dhcp": [
+    {
+      "macaddress": "24DFA7*"
+    },
+    {
+      "hostname": "OEM_TCLISO*"
+    },
+    {
+      "hostname": "oem_tcliso*"
+    }
+  ],
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues",
   "requirements": [],
-  "version": "0.3.4"
+  "version": "0.4.0"
 }

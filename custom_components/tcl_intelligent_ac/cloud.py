@@ -292,6 +292,7 @@ def _parse_devices(response: dict[str, Any]) -> list[CloudDevice]:
     seen: set[str] = set()
 
     for family in response.get("familyallinfo") or []:
+        module_names = _module_names_by_did(family)
         for field in ("devinfo", "subdevinfo"):
             for raw in family.get(field) or []:
                 pid = str(raw.get("pid") or "").lower()
@@ -313,7 +314,7 @@ def _parse_devices(response: dict[str, Any]) -> list[CloudDevice]:
 
                 devices.append(
                     CloudDevice(
-                        name=str(raw.get("name") or normalized_mac),
+                        name=_device_name(raw, module_names, normalized_mac),
                         host=str(raw.get("lanaddr") or raw.get("host") or ""),
                         mac=normalized_mac,
                         key=key,
@@ -323,6 +324,40 @@ def _parse_devices(response: dict[str, Any]) -> list[CloudDevice]:
                 )
 
     return devices
+
+
+def _module_names_by_did(family: dict[str, Any]) -> dict[str, str]:
+    """Return app-visible module names keyed by device IDs.
+
+    Intelligent AC displays devices through BroadLink family modules. The
+    physical device record can keep the Wi-Fi module name (for example
+    ``OEM_TCLISO_...``), while the user-facing name is stored on moduleinfo.
+    """
+
+    names: dict[str, str] = {}
+    for module in family.get("moduleinfo") or []:
+        name = _clean_name(module.get("name"))
+        if not name:
+            continue
+
+        for module_device in module.get("moduledev") or []:
+            did = _clean_name(module_device.get("did"))
+            if did:
+                names.setdefault(did, name)
+    return names
+
+
+def _device_name(raw: dict[str, Any], module_names: dict[str, str], fallback: str) -> str:
+    did = _clean_name(raw.get("did"))
+    if did and did in module_names:
+        return module_names[did]
+    return _clean_name(raw.get("name")) or fallback
+
+
+def _clean_name(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
 
 
 def _common_headers(extra: dict[str, str] | None = None) -> dict[str, str]:

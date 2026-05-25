@@ -11,7 +11,7 @@ from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CONF_KEY, CONF_MAC, DOMAIN
+from .const import CONF_DEVICE_ID, CONF_KEY, CONF_MAC, DOMAIN
 from .protocol import TclAcClient, TclAcDevice, TclAcError
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,6 +64,7 @@ def runtime_from_config(hass: HomeAssistant, device: dict[str, Any]) -> TclAcRun
             host=device[CONF_HOST],
             mac=device[CONF_MAC],
             key=device[CONF_KEY],
+            device_id=int(device.get(CONF_DEVICE_ID, 1)),
         )
     )
     compact_mac = client.device.mac.replace(":", "").replace("-", "").lower()

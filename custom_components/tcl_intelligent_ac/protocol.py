@@ -19,6 +19,8 @@ MAGIC = bytes.fromhex("5aa5aa555aa5aa55")
 INNER_MAGIC = bytes.fromhex("a5a55a5a")
 DEVICE_TYPE = 0x507C
 COMMAND = 0x006A
+BROADLINK_AUTH_COMMAND = 0x0065
+BROADLINK_INIT_KEY = bytes.fromhex("097628343fe99e23765c1513accf8b02")
 RESPONSE_COMMAND = 0x03EE
 DEFAULT_PORT = 80
 DEFAULT_TIMEOUT = 3.0
@@ -39,8 +41,28 @@ class TclAcDevice:
     host: str
     mac: str
     key: str
+    device_id: int = 1
     port: int = DEFAULT_PORT
     timeout: float = DEFAULT_TIMEOUT
+
+
+@dataclass(frozen=True)
+class TclAcDiscovery:
+    """Device details returned by BroadLink/DNA discovery."""
+
+    host: str
+    mac: str
+    devtype: int
+    name: str
+    is_locked: bool
+
+
+@dataclass(frozen=True)
+class TclAcAuth:
+    """Local authentication details returned by a BroadLink/DNA device."""
+
+    key: str
+    device_id: int
 
 
 class TclAcClient:
@@ -106,7 +128,7 @@ class TclAcClient:
         struct.pack_into("<H", packet, 0x26, COMMAND)
         packet[0x28:0x2A] = os.urandom(2)
         packet[0x2A:0x30] = self._mac_reversed
-        struct.pack_into("<I", packet, 0x30, 1)
+        struct.pack_into("<I", packet, 0x30, self.device.device_id)
         struct.pack_into("<H", packet, 0x34, _checksum(plain_payload))
         packet[0x38:] = encrypted
 
@@ -172,6 +194,127 @@ def discover_device_hosts(timeout: float = 2.0) -> dict[str, str]:
                 devices[mac] = remote[0]
 
     return devices
+
+
+def discover_tcl_ac_devices(
+    timeout: float = 2.0,
+    seed_hosts: list[str] | None = None,
+    scan_subnet: bool = False,
+) -> list[TclAcDiscovery]:
+    """Discover TCL/BroadLink DNA AC devices on the LAN."""
+
+    devices: dict[str, TclAcDiscovery] = {}
+    targets: list[tuple[str, int]] = [
+        ("255.255.255.255", DEFAULT_PORT),
+        ("224.0.0.251", DEFAULT_PORT),
+        ("224.0.0.251", 16680),
+    ]
+
+    seen_targets = {target for target in targets}
+
+    def add_target(host: str, port: int = DEFAULT_PORT) -> None:
+        target = (host, port)
+        if host and target not in seen_targets:
+            seen_targets.add(target)
+            targets.append(target)
+
+    for host in seed_hosts or []:
+        add_target(host)
+
+    if scan_subnet:
+        for host in _candidate_hosts(seed_hosts):
+            add_target(host)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(0.2)
+        sock.bind(("0.0.0.0", 0))
+
+        for host, port in targets:
+            try:
+                sock.sendto(DISCOVERY_PAYLOAD, (host, port))
+            except OSError:
+                continue
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                packet, remote = sock.recvfrom(2048)
+            except TimeoutError:
+                continue
+            except OSError:
+                break
+
+            discovery = _parse_discovery_response(packet, remote[0])
+            if discovery is not None:
+                devices[discovery.mac] = discovery
+
+    return sorted(devices.values(), key=lambda device: (device.host, device.mac))
+
+
+def authenticate_tcl_ac_device(device: TclAcDiscovery, timeout: float = 3.0) -> TclAcAuth:
+    """Authenticate to a discovered TCL/BroadLink DNA AC and return the local key."""
+
+    payload = bytearray(0x50)
+    payload[0x04:0x14] = b"\x31" * 16
+    payload[0x1E] = 0x01
+    payload[0x2D] = 0x01
+    payload[0x30:0x36] = b"Test 1"
+
+    packet = _build_broadlink_packet(
+        devtype=device.devtype,
+        command=BROADLINK_AUTH_COMMAND,
+        mac=device.mac,
+        device_id=0,
+        key=BROADLINK_INIT_KEY,
+        plain_payload=bytes(payload),
+    )
+
+    response = _send_udp(device.host, DEFAULT_PORT, packet, timeout)
+    if len(response) < 0x48:
+        raise TclAcError(f"Authentication response too short: {len(response)}")
+
+    error_code = struct.unpack_from("<H", response, 0x22)[0]
+    if error_code != 0:
+        raise TclAcError(f"Authentication failed with error 0x{error_code:04x}")
+
+    plain = _aes_cbc_decrypt(response[0x38:], BROADLINK_INIT_KEY)
+    return TclAcAuth(
+        key=plain[0x04:0x14].hex(),
+        device_id=struct.unpack_from("<I", plain, 0)[0],
+    )
+
+
+def discover_authenticated_tcl_ac_devices(
+    timeout: float = 3.0,
+    seed_hosts: list[str] | None = None,
+    scan_subnet: bool = True,
+) -> list[tuple[TclAcDiscovery, TclAcAuth]]:
+    """Discover and authenticate LAN devices that accept TCL local commands."""
+
+    authenticated: list[tuple[TclAcDiscovery, TclAcAuth]] = []
+    for discovery in discover_tcl_ac_devices(
+        timeout=timeout,
+        seed_hosts=seed_hosts,
+        scan_subnet=scan_subnet,
+    ):
+        try:
+            auth = authenticate_tcl_ac_device(discovery, timeout=timeout)
+            client = TclAcClient(
+                TclAcDevice(
+                    host=discovery.host,
+                    mac=discovery.mac,
+                    key=auth.key,
+                    device_id=auth.device_id,
+                    timeout=timeout,
+                )
+            )
+            client.get_state()
+        except Exception:  # noqa: BLE001
+            continue
+        authenticated.append((discovery, auth))
+
+    return authenticated
 
 
 def find_device_host(
@@ -247,6 +390,48 @@ def _aes_cbc_decrypt(payload: bytes, key: bytes) -> bytes:
     return decryptor.update(payload) + decryptor.finalize()
 
 
+def _send_udp(host: str, port: int, packet: bytes, timeout: float) -> bytes:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(timeout)
+        sock.sendto(packet, (host, port))
+        try:
+            response, _ = sock.recvfrom(2048)
+        except TimeoutError as exc:
+            raise TclAcError(f"Timeout waiting for {host}:{port}") from exc
+    return response
+
+
+def _build_broadlink_packet(
+    devtype: int,
+    command: int,
+    mac: str,
+    device_id: int,
+    key: bytes,
+    plain_payload: bytes,
+) -> bytes:
+    padded_payload = _pad16(plain_payload)
+    encrypted = _aes_cbc_encrypt(padded_payload, key)
+    packet = bytearray(56 + len(encrypted))
+
+    packet[0:8] = MAGIC
+    struct.pack_into("<H", packet, 0x24, devtype)
+    struct.pack_into("<H", packet, 0x26, command)
+    packet[0x28:0x2A] = os.urandom(2)
+    packet[0x2A:0x30] = _parse_mac(mac)[::-1]
+    struct.pack_into("<I", packet, 0x30, device_id)
+    struct.pack_into("<H", packet, 0x34, _checksum(plain_payload))
+    packet[0x38:] = encrypted
+    struct.pack_into("<H", packet, 0x20, _checksum(bytes(packet)))
+    return bytes(packet)
+
+
+def _pad16(payload: bytes) -> bytes:
+    padding = (16 - len(payload) % 16) % 16
+    if padding == 0:
+        return payload
+    return payload + (b"\x00" * padding)
+
+
 def _compact_mac(mac: str) -> str:
     compact = mac.replace(":", "").replace("-", "").lower()
     if len(compact) != 12:
@@ -261,6 +446,25 @@ def _extract_macs(packet: bytes) -> list[str]:
         if compact.startswith(KNOWN_MAC_PREFIXES):
             macs.append(normalize_mac(compact))
     return macs
+
+
+def _parse_discovery_response(packet: bytes, host: str) -> TclAcDiscovery | None:
+    if len(packet) < 0x40:
+        return None
+
+    devtype = struct.unpack_from("<H", packet, 0x34)[0]
+    if devtype != DEVICE_TYPE:
+        return None
+
+    mac = normalize_mac(packet[0x3A:0x40][::-1].hex())
+    name = packet[0x40:].split(b"\x00")[0].decode(errors="ignore").strip()
+    return TclAcDiscovery(
+        host=host,
+        mac=mac,
+        devtype=devtype,
+        name=name or f"TCL AC {mac[-8:]}",
+        is_locked=bool(packet[0x7F]) if len(packet) > 0x7F else False,
+    )
 
 
 def _candidate_hosts(seed_hosts: list[str] | None = None) -> list[str]:

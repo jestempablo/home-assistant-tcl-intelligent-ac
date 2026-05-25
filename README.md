@@ -2,7 +2,7 @@
 
 Unofficial Home Assistant custom integration for air conditioners controlled by the **Intelligent AC** mobile app.
 
-This integration was built to control owned TCL air conditioners locally from Home Assistant. It uses the Intelligent AC cloud only during setup to fetch the LAN details needed for local control. Runtime control is local over the LAN.
+This integration was built to control owned TCL air conditioners locally from Home Assistant. It can discover and authenticate already-paired devices over the LAN without using an Intelligent AC account. Cloud-assisted setup is still available as a fallback to fetch the LAN details from the Intelligent AC cloud. Runtime control is local over the LAN.
 
 ## Current status
 
@@ -24,7 +24,7 @@ Maintenance note: this project is maintained on a best-effort basis. Issues and 
 
 ## Important region and app notes
 
-Create and configure your device in the official **Intelligent AC** app first. The Home Assistant integration expects the device to already exist in your Intelligent AC account.
+For cloud-assisted setup, create and configure your device in the official **Intelligent AC** app first. LAN discovery setup can add already-paired devices without logging in to Intelligent AC.
 
 During testing, the working region was **United States / Other**. The **Europe** region appeared unavailable or disabled in the app setup flow and is not known to work here. China and Russia are present in the app but have not been tested.
 
@@ -65,14 +65,27 @@ Then restart Home Assistant and add **TCL Intelligent AC** from **Settings > Dev
 
 ## Configuration
 
-Recommended setup path:
+Automatic discovery:
 
-1. Select **Use Intelligent AC account**.
+Home Assistant can discover supported already-paired devices from DHCP information when their MAC address or hostname matches the tested TCL/BroadLink profile. The discovered flow still validates the device locally with BroadLink authentication before showing it for setup. If DHCP discovery does not appear, use **Local discovery (recommended)** from the normal add-integration flow.
+
+Recommended setup path for already-paired LAN devices:
+
+1. Select **Local discovery (recommended)**.
+2. Leave the optional discovery fields unchanged, or enter known device IP addresses in **Known IP addresses** if automatic discovery misses a device.
+3. Select the discovered AC devices.
+
+This sends local BroadLink/DNA discovery and authentication packets on your LAN. It does not use Intelligent AC credentials. It only works for devices that are already connected to the same network as Home Assistant.
+
+Cloud-assisted setup path:
+
+1. Select **Cloud-assisted setup**.
 2. Enter the Intelligent AC account email/phone and password.
 3. Select the same region used in the app.
 4. Select the discovered AC devices.
 
 The account password is used once during setup and is not stored by the integration. The integration stores the local device details needed for LAN control, including the per-device key.
+Cloud-assisted setup uses the friendly names stored in the Intelligent AC family metadata when they are available.
 
 Manual setup is also available if you already know the device LAN IP, MAC address, and local key.
 
@@ -89,8 +102,10 @@ Timer/reservation is intentionally not exposed yet. The APK maps those features 
 
 ## Known limitations
 
-- Account-assisted setup is confirmed only for the United States / Other region.
+- Cloud-assisted setup is confirmed only for the United States / Other region.
 - EU setup is not known to work.
+- LAN discovery setup requires the device to already be paired to Wi-Fi and reachable from Home Assistant.
+- LAN discovery may require entering known device IP addresses if broadcast or subnet scanning is blocked by your network.
 - Other brands and models may work if they use the same BroadLink/DNA AC profile, but they are not tested.
 - Cloud control is not implemented. Cloud is used only to bootstrap local control.
 - Device keys, MAC addresses, and logs should be treated as private if you share diagnostics publicly.
@@ -102,6 +117,8 @@ Timer/reservation is intentionally not exposed yet. The APK maps those features 
 
 `cloud_error`: cloud setup failed before devices could be fetched. Check Home Assistant logs for the detailed response.
 
+`no_lan_devices`: LAN discovery did not find any supported devices or could not authenticate them. Try entering known device IP addresses, make sure Home Assistant is on the same network, and check that UDP traffic to port 80 is allowed.
+
 `host_not_found`: the device was found in the account, but Home Assistant could not resolve or reach it on the LAN. Make sure Home Assistant and the AC are on the same network and that UDP traffic is not blocked.
 
 `cannot_connect`: the integration could not talk to the device with the resolved or manually entered LAN details.
@@ -111,7 +128,7 @@ Timer/reservation is intentionally not exposed yet. The APK maps those features 
 The tested devices use local UDP on port 80 with BroadLink/DNA framing:
 
 - AES-128-CBC
-- per-device key from Intelligent AC device metadata
+- per-device key from BroadLink/DNA local authentication or Intelligent AC device metadata
 - JSON command bodies for get/set operations
 
 Confirmed parameters include:
@@ -143,7 +160,7 @@ Useful reports include:
 - Intelligent AC region
 - Home Assistant version
 - integration version
-- whether setup was cloud-assisted or manual
+- whether setup was LAN-discovered, cloud-assisted, or manual
 - redacted Home Assistant logs
 - redacted state payloads if you are adding model support
 

@@ -3,6 +3,7 @@ import dgram from "node:dgram";
 
 const DISCOVERY_PORT = Number(process.env.BL_DISCOVERY_PORT || 36200);
 const DURATION_MS = Number(process.env.BL_DISCOVERY_MS || 5000);
+const hosts = process.argv.slice(2);
 
 // 48-byte BroadLink discovery payload observed from the Intelligent AC SDK.
 // It includes the SDK magic/header and is sufficient for legacy BroadLink
@@ -16,9 +17,15 @@ function reverseMac(buf) {
   return Array.from(buf).reverse().map((b) => b.toString(16).padStart(2, "0")).join(":");
 }
 
+function cleanAscii(value) {
+  return value.replace(/[^\x20-\x7e]+/g, " ").trim();
+}
+
 function parseResponse(msg, rinfo) {
   const hex = msg.toString("hex");
-  const ascii = msg.toString("latin1").replace(/[^\x20-\x7e]+/g, " ").trim();
+  const ascii = cleanAscii(msg.toString("latin1"));
+  const devtype = msg.length > 0x35 ? msg.readUInt16LE(0x34) : null;
+  const name = msg.length > 0x40 ? cleanAscii(msg.subarray(0x40).toString("latin1").split("\0")[0] || "") : "";
 
   const candidates = [];
   for (let offset = 0; offset <= msg.length - 6; offset += 1) {
@@ -32,6 +39,8 @@ function parseResponse(msg, rinfo) {
   return {
     from: `${rinfo.address}:${rinfo.port}`,
     length: msg.length,
+    devtype: devtype === null ? null : `0x${devtype.toString(16).padStart(4, "0")}`,
+    name,
     macs: candidates,
     ascii,
     hex,
@@ -50,17 +59,24 @@ socket.on("message", (msg, rinfo) => {
 
 socket.on("listening", () => {
   socket.setBroadcast(true);
-  const targets = [
-    ["255.255.255.255", 80],
-    ["224.0.0.251", 80],
-    ["224.0.0.251", 16680],
-  ];
+  const targets =
+    hosts.length > 0
+      ? hosts.flatMap((host) => [[host, 80]])
+      : [
+          ["255.255.255.255", 80],
+          ["224.0.0.251", 80],
+          ["224.0.0.251", 16680],
+        ];
 
   for (const [host, port] of targets) {
     socket.send(payload, port, host);
   }
 
-  console.error(`sent discovery from UDP/${DISCOVERY_PORT}, waiting ${DURATION_MS}ms`);
+  console.error(
+    `sent discovery from UDP/${DISCOVERY_PORT} to ${targets
+      .map(([host, port]) => `${host}:${port}`)
+      .join(", ")}, waiting ${DURATION_MS}ms`,
+  );
 });
 
 socket.bind(DISCOVERY_PORT, "0.0.0.0");

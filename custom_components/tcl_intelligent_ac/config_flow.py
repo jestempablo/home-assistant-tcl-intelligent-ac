@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -21,13 +22,16 @@ from .cloud import (
     TclCloudRateLimitError,
     get_cloud_devices,
 )
-from .const import CONF_DEVICES, CONF_KEY, CONF_MAC, DOMAIN
-from .protocol import TclAcClient, TclAcDevice
+from .const import CONF_DEVICE_ID, CONF_DEVICES, CONF_KEY, CONF_MAC, DOMAIN
+from .protocol import TclAcClient, TclAcDevice, discover_authenticated_tcl_ac_devices
 
 CONF_REGION = "region"
+CONF_SCAN_SUBNET = "scan_subnet"
 CONF_SELECTION = "selection"
 CONF_SETUP_METHOD = "setup_method"
+CONF_SEED_HOSTS = "seed_hosts"
 SETUP_METHOD_CLOUD = "cloud"
+SETUP_METHOD_LOCAL_DISCOVERY = "local_discovery"
 SETUP_METHOD_MANUAL = "manual"
 
 _LOGGER = logging.getLogger(__name__)
@@ -68,27 +72,66 @@ def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
         {
             vol.Required(
                 CONF_SETUP_METHOD,
-                default=defaults.get(CONF_SETUP_METHOD, SETUP_METHOD_CLOUD),
+                default=defaults.get(CONF_SETUP_METHOD, SETUP_METHOD_LOCAL_DISCOVERY),
             ): vol.In(
                 {
-                    SETUP_METHOD_CLOUD: "Use Intelligent AC account",
-                    SETUP_METHOD_MANUAL: "Enter LAN details manually",
+                    SETUP_METHOD_LOCAL_DISCOVERY: "Local discovery (recommended)",
+                    SETUP_METHOD_CLOUD: "Cloud-assisted setup",
+                    SETUP_METHOD_MANUAL: "Manual setup",
                 }
             )
         }
     )
 
 
-def _select_schema(devices: list[CloudDevice]) -> vol.Schema:
+def _local_discovery_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    defaults = defaults or {}
+    return vol.Schema(
+        {
+            vol.Optional(CONF_SEED_HOSTS, default=defaults.get(CONF_SEED_HOSTS, "")): str,
+            vol.Required(CONF_SCAN_SUBNET, default=defaults.get(CONF_SCAN_SUBNET, True)): bool,
+        }
+    )
+
+
+def _device_mac(device: CloudDevice | dict[str, Any]) -> str:
+    if isinstance(device, dict):
+        return str(device[CONF_MAC])
+    return device.mac
+
+
+def _device_name(device: CloudDevice | dict[str, Any]) -> str:
+    if isinstance(device, dict):
+        return str(device[CONF_NAME])
+    return device.name
+
+
+def _device_host(device: CloudDevice | dict[str, Any]) -> str:
+    if isinstance(device, dict):
+        return str(device.get(CONF_HOST) or "")
+    return device.host
+
+
+def _select_schema(devices: list[CloudDevice] | list[dict[str, Any]]) -> vol.Schema:
     options = {
-        device.mac: f"{device.name} ({device.mac}{', ' + device.host if device.host else ', host not found'})"
+        _device_mac(device): (
+            f"{_device_name(device)} ({_device_mac(device)}"
+            f"{', ' + _device_host(device) if _device_host(device) else ', host not found'})"
+        )
         for device in devices
     }
     return vol.Schema({vol.Required(CONF_SELECTION, default=list(options)): cv.multi_select(options)})
 
 
 async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
-    client = TclAcClient(TclAcDevice(host=data[CONF_HOST], mac=data[CONF_MAC], key=data[CONF_KEY]))
+    client = TclAcClient(
+        TclAcDevice(
+            host=data[CONF_HOST],
+            mac=data[CONF_MAC],
+            key=data[CONF_KEY],
+            device_id=int(data.get(CONF_DEVICE_ID, 1)),
+        )
+    )
     await hass.async_add_executor_job(client.get_state)
 
 
@@ -109,9 +152,66 @@ def _configured_macs(hass: HomeAssistant) -> set[str]:
     return macs
 
 
-def _cloud_unique_id(devices: list[dict[str, Any]]) -> str:
+def _update_configured_host(hass: HomeAssistant, mac: str, host: str) -> bool:
+    """Update a configured device host if the device is already configured."""
+
+    target_mac = _mac_unique_id(mac)
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if CONF_DEVICES in entry.data:
+            changed = False
+            devices: list[dict[str, Any]] = []
+            found = False
+            for device in entry.data[CONF_DEVICES]:
+                updated = dict(device)
+                if _mac_unique_id(updated[CONF_MAC]) == target_mac:
+                    found = True
+                    if updated.get(CONF_HOST) != host:
+                        updated[CONF_HOST] = host
+                        changed = True
+                devices.append(updated)
+
+            if found:
+                if changed:
+                    data = dict(entry.data)
+                    data[CONF_DEVICES] = devices
+                    hass.config_entries.async_update_entry(entry, data=data)
+                return True
+
+        elif entry.data.get(CONF_MAC) and _mac_unique_id(entry.data[CONF_MAC]) == target_mac:
+            if entry.data.get(CONF_HOST) != host:
+                data = dict(entry.data)
+                data[CONF_HOST] = host
+                hass.config_entries.async_update_entry(entry, data=data)
+            return True
+
+    return False
+
+
+def _devices_unique_id(devices: list[dict[str, Any]], prefix: str) -> str:
     macs = ",".join(sorted(_mac_unique_id(device[CONF_MAC]) for device in devices))
-    return "cloud_" + hashlib.sha1(macs.encode()).hexdigest()[:16]  # noqa: S324
+    return prefix + "_" + hashlib.sha1(macs.encode()).hexdigest()[:16]  # noqa: S324
+
+
+def _parse_seed_hosts(raw_hosts: str) -> list[str]:
+    return [host for host in re.split(r"[\s,;]+", raw_hosts.strip()) if host]
+
+
+def _accountless_device_configs(seed_hosts: list[str], scan_subnet: bool) -> list[dict[str, Any]]:
+    devices: list[dict[str, Any]] = []
+    for discovery, auth in discover_authenticated_tcl_ac_devices(
+        seed_hosts=seed_hosts,
+        scan_subnet=scan_subnet,
+    ):
+        devices.append(
+            {
+                CONF_NAME: discovery.name,
+                CONF_HOST: discovery.host,
+                CONF_MAC: discovery.mac,
+                CONF_KEY: auth.key,
+                CONF_DEVICE_ID: auth.device_id,
+            }
+        )
+    return devices
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -121,6 +221,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._cloud_devices: list[CloudDevice] = []
+        self._discovered_device: dict[str, Any] | None = None
+        self._local_devices: list[dict[str, Any]] = []
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
@@ -128,9 +230,67 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             if user_input[CONF_SETUP_METHOD] == SETUP_METHOD_MANUAL:
                 return await self.async_step_manual()
+            if user_input[CONF_SETUP_METHOD] == SETUP_METHOD_LOCAL_DISCOVERY:
+                return await self.async_step_local_discovery()
             return await self.async_step_cloud()
 
         return self.async_show_form(step_id="user", data_schema=_user_schema(user_input), errors={})
+
+    async def async_step_dhcp(self, discovery_info: Any) -> config_entries.ConfigFlowResult:
+        """Handle DHCP discovery."""
+
+        host = getattr(discovery_info, "ip", None)
+        if not host:
+            return self.async_abort(reason="not_supported")
+
+        devices = await self.hass.async_add_executor_job(
+            _accountless_device_configs,
+            [str(host)],
+            False,
+        )
+        if not devices:
+            return self.async_abort(reason="not_supported")
+
+        device = devices[0]
+        if _update_configured_host(self.hass, device[CONF_MAC], device[CONF_HOST]):
+            return self.async_abort(reason="already_configured")
+
+        await self.async_set_unique_id(_mac_unique_id(device[CONF_MAC]))
+        self._abort_if_unique_id_configured(updates={CONF_HOST: device[CONF_HOST]})
+        self._discovered_device = device
+        self.context["title_placeholders"] = {
+            CONF_NAME: device[CONF_NAME],
+            CONF_HOST: device[CONF_HOST],
+        }
+        return await self.async_step_dhcp_confirm()
+
+    async def async_step_dhcp_confirm(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm a DHCP-discovered device."""
+
+        if self._discovered_device is None:
+            return self.async_abort(reason="not_supported")
+
+        if user_input is not None:
+            device = self._discovered_device
+            await self.async_set_unique_id(_mac_unique_id(device[CONF_MAC]))
+            self._abort_if_unique_id_configured(updates={CONF_HOST: device[CONF_HOST]})
+            return self.async_create_entry(
+                title=device[CONF_NAME],
+                data={CONF_DEVICES: [device]},
+            )
+
+        return self.async_show_form(
+            step_id="dhcp_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                CONF_NAME: self._discovered_device[CONF_NAME],
+                CONF_HOST: self._discovered_device[CONF_HOST],
+                CONF_MAC: self._discovered_device[CONF_MAC],
+            },
+        )
 
     async def async_step_cloud(self, user_input: dict[str, Any] | None = None) -> config_entries.ConfigFlowResult:
         """Handle cloud-assisted device discovery."""
@@ -185,12 +345,74 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 except Exception:  # noqa: BLE001
                     errors["base"] = "cannot_connect"
                 else:
-                    await self.async_set_unique_id(_cloud_unique_id(selected))
+                    title = selected[0][CONF_NAME] if len(selected) == 1 else f"TCL Intelligent AC ({len(selected)} devices)"
+                    await self.async_set_unique_id(_devices_unique_id(selected, "cloud"))
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(title=title, data={CONF_DEVICES: selected})
+
+        return self.async_show_form(step_id="select", data_schema=_select_schema(self._cloud_devices), errors=errors)
+
+    async def async_step_local_discovery(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Discover and authenticate LAN devices without using an Intelligent AC account."""
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                self._local_devices = await self.hass.async_add_executor_job(
+                    _accountless_device_configs,
+                    _parse_seed_hosts(user_input.get(CONF_SEED_HOSTS, "")),
+                    bool(user_input.get(CONF_SCAN_SUBNET, True)),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected TCL Intelligent AC LAN discovery error")
+                errors["base"] = "discovery_error"
+            else:
+                if not self._local_devices:
+                    errors["base"] = "no_lan_devices"
+                else:
+                    return await self.async_step_select_local()
+
+        return self.async_show_form(
+            step_id="local_discovery",
+            data_schema=_local_discovery_schema(user_input),
+            errors=errors,
+        )
+
+    async def async_step_select_local(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Let the user choose LAN-discovered devices."""
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected_macs = set(user_input.get(CONF_SELECTION) or [])
+            selected = [device for device in self._local_devices if device[CONF_MAC] in selected_macs]
+            if not selected:
+                errors["base"] = "no_devices_selected"
+            elif _configured_macs(self.hass).intersection(_mac_unique_id(device[CONF_MAC]) for device in selected):
+                errors["base"] = "already_configured"
+            else:
+                try:
+                    await _validate_devices(self.hass, selected)
+                except Exception:  # noqa: BLE001
+                    errors["base"] = "cannot_connect"
+                else:
+                    await self.async_set_unique_id(_devices_unique_id(selected, "local"))
                     self._abort_if_unique_id_configured()
                     title = selected[0][CONF_NAME] if len(selected) == 1 else f"TCL Intelligent AC ({len(selected)} devices)"
                     return self.async_create_entry(title=title, data={CONF_DEVICES: selected})
 
-        return self.async_show_form(step_id="select", data_schema=_select_schema(self._cloud_devices), errors=errors)
+        return self.async_show_form(
+            step_id="select_local",
+            data_schema=_select_schema(self._local_devices),
+            errors=errors,
+        )
 
     async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> config_entries.ConfigFlowResult:
         """Handle manual LAN setup."""

@@ -17,13 +17,17 @@ Cordova WebView
   -> libNetworkAPI.so
 ```
 
-The app normally needs device metadata from the BroadLink cloud, including MAC, local IP, password/id, and per-device AES key. Once those are known, local control can be done directly over LAN.
+The app normally gets device metadata from the BroadLink cloud, including MAC, local IP, password/id, and per-device AES key. Friendly names are displayed from `familyallinfo[].moduleinfo[].name`, mapped back to `devinfo` by `moduleinfo[].moduledev[].did`. The tested TCL XA71I units also return the local AES key through standard BroadLink LAN authentication, so already-paired devices can be bootstrapped without an Intelligent AC account.
 
 ## Local transport
 
 - Protocol: UDP
 - Port: `80`
 - Discovery also works over BroadLink-style UDP; both tested ACs responded from their LAN IPs.
+- Tested discovery response fields:
+  - `devtype`: `0x507c`
+  - `name`: `OEM_TCLISO_<mac suffix>`
+  - `mac`: at response offset `0x3a..0x3f`, reversed
 - Control packets use BroadLink/DNA framing with magic `5aa5aa555aa5aa55`.
 
 Outer packet:
@@ -47,7 +51,20 @@ Checksums start at `0xbeaf` and add all bytes modulo `0x10000`.
 - AES-128-CBC
 - No padding at crypto layer; inner plaintext is zero-padded to a 16-byte AES block boundary
 - IV: `562e17996d093d28ddb3ba695a2e6f58`
-- Key: per-device AES key from app device metadata
+- Initial BroadLink auth key: `097628343fe99e23765c1513accf8b02`
+- Runtime key: per-device AES key from BroadLink LAN auth or app device metadata
+
+## LAN authentication
+
+Standard BroadLink auth works against the tested ACs:
+
+- command: `0x0065`
+- auth payload length: `0x50`
+- response payload decrypts with the initial BroadLink key
+- decrypted response bytes `0x00..0x03`: device id, observed `1`
+- decrypted response bytes `0x04..0x13`: per-device AES key for local TCL/DNA commands
+
+After auth, a normal TCL `get` command succeeds using the returned key and device id.
 
 ## Inner payload
 
@@ -92,4 +109,6 @@ node tools/tcl-ac-local.mjs example get
 node tools/tcl-ac-local.mjs example set temp 230
 node tools/tcl-ac-local.mjs example set pwr 1
 node tools/tcl-ac-local.mjs --host 192.168.1.50 --mac aa:bb:cc:dd:ee:ff --key 00000000000000000000000000000000 get
+node tools/broadlink-discover.mjs 192.168.1.50
+node tools/broadlink-auth-test.mjs 192.168.1.50
 ```
