@@ -152,6 +152,34 @@ def _configured_macs(hass: HomeAssistant) -> set[str]:
     return macs
 
 
+def _filter_unconfigured_devices(hass: HomeAssistant, devices: list[Any]) -> list[Any]:
+    """Return only devices that are not already configured.
+
+    If discovery finds an existing device at a new host, keep the stored entry
+    current while hiding it from the "devices to add" selection screen.
+    """
+
+    configured_macs = _configured_macs(hass)
+    filtered: list[Any] = []
+    seen_macs: set[str] = set()
+
+    for device in devices:
+        mac = _device_mac(device)
+        unique_mac = _mac_unique_id(mac)
+        if unique_mac in seen_macs:
+            continue
+        seen_macs.add(unique_mac)
+
+        if unique_mac in configured_macs:
+            if host := _device_host(device):
+                _update_configured_host(hass, mac, host)
+            continue
+
+        filtered.append(device)
+
+    return filtered
+
+
 def _update_configured_host(hass: HomeAssistant, mac: str, host: str) -> bool:
     """Update a configured device host if the device is already configured."""
 
@@ -273,18 +301,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._discovered_device is None:
             return self.async_abort(reason="not_supported")
 
+        errors: dict[str, str] = {}
+
         if user_input is not None:
             device = self._discovered_device
             await self.async_set_unique_id(_mac_unique_id(device[CONF_MAC]))
             self._abort_if_unique_id_configured(updates={CONF_HOST: device[CONF_HOST]})
-            return self.async_create_entry(
-                title=device[CONF_NAME],
-                data={CONF_DEVICES: [device]},
-            )
+            try:
+                await _validate_devices(self.hass, [device])
+            except Exception:  # noqa: BLE001
+                errors["base"] = "cannot_connect"
+            else:
+                return self.async_create_entry(
+                    title=device[CONF_NAME],
+                    data={CONF_DEVICES: [device]},
+                )
 
         return self.async_show_form(
             step_id="dhcp_confirm",
             data_schema=vol.Schema({}),
+            errors=errors,
             description_placeholders={
                 CONF_NAME: self._discovered_device[CONF_NAME],
                 CONF_HOST: self._discovered_device[CONF_HOST],
@@ -299,7 +335,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                self._cloud_devices = await self.hass.async_add_executor_job(
+                cloud_devices = await self.hass.async_add_executor_job(
                     get_cloud_devices,
                     user_input[CONF_USERNAME],
                     user_input[CONF_PASSWORD],
@@ -318,10 +354,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected TCL Intelligent AC cloud setup error")
                 errors["base"] = "cloud_error"
             else:
-                if not self._cloud_devices:
+                if not cloud_devices:
                     errors["base"] = "no_devices"
                 else:
-                    return await self.async_step_select()
+                    self._cloud_devices = _filter_unconfigured_devices(self.hass, cloud_devices)
+                    if not self._cloud_devices:
+                        errors["base"] = "all_devices_configured"
+                    else:
+                        return await self.async_step_select()
 
         return self.async_show_form(step_id="cloud", data_schema=_cloud_schema(user_input), errors=errors)
 
@@ -362,7 +402,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                self._local_devices = await self.hass.async_add_executor_job(
+                local_devices = await self.hass.async_add_executor_job(
                     _accountless_device_configs,
                     _parse_seed_hosts(user_input.get(CONF_SEED_HOSTS, "")),
                     bool(user_input.get(CONF_SCAN_SUBNET, True)),
@@ -371,10 +411,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected TCL Intelligent AC LAN discovery error")
                 errors["base"] = "discovery_error"
             else:
-                if not self._local_devices:
+                if not local_devices:
                     errors["base"] = "no_lan_devices"
                 else:
-                    return await self.async_step_select_local()
+                    self._local_devices = _filter_unconfigured_devices(self.hass, local_devices)
+                    if not self._local_devices:
+                        errors["base"] = "all_devices_configured"
+                    else:
+                        return await self.async_step_select_local()
 
         return self.async_show_form(
             step_id="local_discovery",

@@ -25,7 +25,7 @@
           "scan_subnet": "Scan local subnet"
         },
         "data_description": {
-          "seed_hosts": "Enter one or more device IP addresses, for example 192.168.1.93, 192.168.1.202. Use this if automatic discovery does not find all devices.",
+          "seed_hosts": "Enter one or more device IP addresses, for example 192.168.1.50, 192.168.1.51. Use this if automatic discovery does not find all devices.",
           "scan_subnet": "Try each address on Home Assistant's local /24 network. This is useful when broadcast discovery is blocked or incomplete."
         }
       },
@@ -68,7 +68,8 @@
       "no_devices": "No supported TCL AC devices were found in this account.",
       "no_lan_devices": "No supported TCL AC devices could be discovered and authenticated on the LAN.",
       "no_devices_selected": "Select at least one device.",
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "all_devices_configured": "All discovered devices are already configured."
     },
     "abort": {
       "already_configured": "This device is already configured.",
