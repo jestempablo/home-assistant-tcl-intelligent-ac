@@ -246,6 +246,21 @@ for (const host of options.hosts) {
         2,
       ),
     );
+    if (device.isLocked) {
+      console.log(
+        JSON.stringify(
+          {
+            diagnosis: {
+              locked: true,
+              message:
+                "Device reports LOCKED=True. BroadLink/DNA local auth commonly fails with 0xffff until the lock is cleared.",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+    }
 
     const auth = await broadlinkAuth(device);
     console.log(

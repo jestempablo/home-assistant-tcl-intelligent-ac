@@ -69,11 +69,13 @@
       "no_lan_devices": "No supported TCL AC devices could be discovered and authenticated on the LAN.",
       "no_devices_selected": "Select at least one device.",
       "already_configured": "This device is already configured.",
-      "all_devices_configured": "All discovered devices are already configured."
+      "all_devices_configured": "All discovered devices are already configured.",
+      "locked_device": "A TCL AC was discovered, but it reports LOCKED=True and blocked local authentication. Disable any BroadLink-style Lock device setting, or perform a deeper Wi-Fi module/factory reset and try again."
     },
     "abort": {
       "already_configured": "This device is already configured.",
-      "not_supported": "No supported TCL Intelligent AC device could be authenticated at this address."
+      "not_supported": "No supported TCL Intelligent AC device could be authenticated at this address.",
+      "locked_device": "The discovered TCL AC reports LOCKED=True and blocks local authentication."
     }
   }
 }

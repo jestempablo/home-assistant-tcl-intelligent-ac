@@ -41,6 +41,7 @@ function parseResponse(msg, rinfo) {
     length: msg.length,
     devtype: devtype === null ? null : `0x${devtype.toString(16).padStart(4, "0")}`,
     name,
+    is_locked: Boolean(msg[0x7f]),
     macs: candidates,
     ascii,
     hex,

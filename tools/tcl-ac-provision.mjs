@@ -1024,6 +1024,10 @@ function sendUdp(host, packet, timeoutMs = 3000) {
 }
 
 async function broadlinkAuth(device, timeoutMs = 3000) {
+  if (device.isLocked) {
+    throw new Error("Device reports LOCKED=True and blocks BroadLink/DNA local auth");
+  }
+
   const payload = Buffer.alloc(0x50);
   payload.fill(0x31, 0x04, 0x14);
   payload[0x1e] = 0x01;
@@ -1132,6 +1136,16 @@ async function discoverAuthenticatedLanDevices(timeoutMs = 120000) {
     const devices = await discoverLanDevices(3000);
     for (const device of devices) {
       if (authenticatedMacs.has(device.mac)) continue;
+      if (device.isLocked) {
+        const lastLogAt = lastFailureLogAt.get(device.mac) || 0;
+        if (Date.now() - lastLogAt > 15000) {
+          lastFailureLogAt.set(device.mac, Date.now());
+          console.error(
+            `LAN auth blocked for ${device.host} (${device.mac}): device reports LOCKED=True; clear the lock/reset the Wi-Fi module and retry.`,
+          );
+        }
+        continue;
+      }
       try {
         const auth = await broadlinkAuth(device, 3000);
         let state = null;

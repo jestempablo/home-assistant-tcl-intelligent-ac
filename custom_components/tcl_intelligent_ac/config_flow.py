@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 import voluptuous as vol
@@ -23,7 +24,14 @@ from .cloud import (
     get_cloud_devices,
 )
 from .const import CONF_DEVICE_ID, CONF_DEVICES, CONF_KEY, CONF_MAC, DOMAIN
-from .protocol import TclAcClient, TclAcDevice, discover_authenticated_tcl_ac_devices
+from .protocol import (
+    TclAcClient,
+    TclAcDevice,
+    TclAcDiscovery,
+    TclAcLockedError,
+    authenticate_tcl_ac_device,
+    discover_tcl_ac_devices,
+)
 
 CONF_REGION = "region"
 CONF_SCAN_SUBNET = "scan_subnet"
@@ -35,6 +43,14 @@ SETUP_METHOD_LOCAL_DISCOVERY = "local_discovery"
 SETUP_METHOD_MANUAL = "manual"
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class LocalDiscoveryResult:
+    """Devices found through LAN discovery, grouped by setup outcome."""
+
+    devices: list[dict[str, Any]]
+    locked_devices: list[TclAcDiscovery]
 
 
 def _mac_unique_id(mac: str) -> str:
@@ -224,12 +240,35 @@ def _parse_seed_hosts(raw_hosts: str) -> list[str]:
     return [host for host in re.split(r"[\s,;]+", raw_hosts.strip()) if host]
 
 
-def _accountless_device_configs(seed_hosts: list[str], scan_subnet: bool) -> list[dict[str, Any]]:
+def _locked_device_summary(devices: list[TclAcDiscovery]) -> str:
+    return ", ".join(f"{device.name} ({device.mac}, {device.host})" for device in devices)
+
+
+def _accountless_device_configs(seed_hosts: list[str], scan_subnet: bool) -> LocalDiscoveryResult:
     devices: list[dict[str, Any]] = []
-    for discovery, auth in discover_authenticated_tcl_ac_devices(
+    locked_devices: list[TclAcDiscovery] = []
+
+    for discovery in discover_tcl_ac_devices(
         seed_hosts=seed_hosts,
         scan_subnet=scan_subnet,
     ):
+        try:
+            auth = authenticate_tcl_ac_device(discovery)
+            client = TclAcClient(
+                TclAcDevice(
+                    host=discovery.host,
+                    mac=discovery.mac,
+                    key=auth.key,
+                    device_id=auth.device_id,
+                )
+            )
+            client.get_state()
+        except TclAcLockedError:
+            locked_devices.append(discovery)
+            continue
+        except Exception:  # noqa: BLE001
+            continue
+
         devices.append(
             {
                 CONF_NAME: discovery.name,
@@ -239,7 +278,8 @@ def _accountless_device_configs(seed_hosts: list[str], scan_subnet: bool) -> lis
                 CONF_DEVICE_ID: auth.device_id,
             }
         )
-    return devices
+
+    return LocalDiscoveryResult(devices=devices, locked_devices=locked_devices)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -271,12 +311,22 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not host:
             return self.async_abort(reason="not_supported")
 
-        devices = await self.hass.async_add_executor_job(
+        result = await self.hass.async_add_executor_job(
             _accountless_device_configs,
             [str(host)],
             False,
         )
+        devices = result.devices
         if not devices:
+            if result.locked_devices:
+                for locked_device in result.locked_devices:
+                    if _update_configured_host(self.hass, locked_device.mac, locked_device.host):
+                        return self.async_abort(reason="already_configured")
+                _LOGGER.warning(
+                    "TCL Intelligent AC DHCP discovery found locked devices: %s",
+                    _locked_device_summary(result.locked_devices),
+                )
+                return self.async_abort(reason="locked_device")
             return self.async_abort(reason="not_supported")
 
         device = devices[0]
@@ -402,17 +452,25 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                local_devices = await self.hass.async_add_executor_job(
+                result = await self.hass.async_add_executor_job(
                     _accountless_device_configs,
                     _parse_seed_hosts(user_input.get(CONF_SEED_HOSTS, "")),
                     bool(user_input.get(CONF_SCAN_SUBNET, True)),
                 )
+                local_devices = result.devices
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Unexpected TCL Intelligent AC LAN discovery error")
                 errors["base"] = "discovery_error"
             else:
                 if not local_devices:
-                    errors["base"] = "no_lan_devices"
+                    if result.locked_devices:
+                        _LOGGER.warning(
+                            "TCL Intelligent AC LAN discovery found locked devices: %s",
+                            _locked_device_summary(result.locked_devices),
+                        )
+                        errors["base"] = "locked_device"
+                    else:
+                        errors["base"] = "no_lan_devices"
                 else:
                     self._local_devices = _filter_unconfigured_devices(self.hass, local_devices)
                     if not self._local_devices:

@@ -34,6 +34,18 @@ class TclAcError(Exception):
     """Raised when local AC communication fails."""
 
 
+class TclAcAuthError(TclAcError):
+    """Raised when BroadLink/DNA authentication fails."""
+
+    def __init__(self, message: str, error_code: int | None = None) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
+class TclAcLockedError(TclAcAuthError):
+    """Raised when a device reports the BroadLink/DNA locked flag."""
+
+
 @dataclass(frozen=True)
 class TclAcDevice:
     """Connection details for one TCL AC."""
@@ -255,6 +267,12 @@ def discover_tcl_ac_devices(
 def authenticate_tcl_ac_device(device: TclAcDiscovery, timeout: float = 3.0) -> TclAcAuth:
     """Authenticate to a discovered TCL/BroadLink DNA AC and return the local key."""
 
+    if device.is_locked:
+        raise TclAcLockedError(
+            f"{device.name} ({device.mac}) reports LOCKED=True and blocks local authentication",
+            error_code=0xFFFF,
+        )
+
     payload = bytearray(0x50)
     payload[0x04:0x14] = b"\x31" * 16
     payload[0x1E] = 0x01
@@ -276,7 +294,12 @@ def authenticate_tcl_ac_device(device: TclAcDiscovery, timeout: float = 3.0) -> 
 
     error_code = struct.unpack_from("<H", response, 0x22)[0]
     if error_code != 0:
-        raise TclAcError(f"Authentication failed with error 0x{error_code:04x}")
+        if error_code == 0xFFFF:
+            raise TclAcLockedError(
+                f"Authentication failed with error 0x{error_code:04x}; the device may be locked",
+                error_code=error_code,
+            )
+        raise TclAcAuthError(f"Authentication failed with error 0x{error_code:04x}", error_code=error_code)
 
     plain = _aes_cbc_decrypt(response[0x38:], BROADLINK_INIT_KEY)
     return TclAcAuth(

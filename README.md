@@ -150,6 +150,7 @@ Timer/reservation is intentionally not exposed. The APK maps those features to s
 - Cloud-assisted setup is confirmed only for the United States / Other region.
 - EU setup may fail during device pairing without a clear app error; use United States / Other unless you have confirmed another region works for your device.
 - LAN discovery setup requires the device to already be paired to Wi-Fi and reachable from Home Assistant. Use the included pairing CLI for accountless local pairing on tested devices.
+- Some devices can report `LOCKED=True` in BroadLink/DNA discovery. In that state, local authentication can fail with `0xffff` until the lock is cleared.
 - LAN discovery may require entering known device IP addresses if broadcast or subnet scanning is blocked by your network.
 - Pairing without the app is handled by a separate CLI tool, not by the Home Assistant config flow.
 - Other brands and models may work if they use the same BroadLink/DNA AC profile, but they are not tested.
@@ -165,9 +166,15 @@ Timer/reservation is intentionally not exposed. The APK maps those features to s
 
 `no_lan_devices`: LAN discovery did not find any supported devices or could not authenticate them. Try entering known device IP addresses, make sure Home Assistant is on the same network, and check that UDP traffic to port 80 is allowed.
 
+`locked_device`: LAN discovery found a supported AC, but the device reported `LOCKED=True` and blocked BroadLink/DNA local authentication. This can also appear in diagnostics as authentication error `0xffff`. If a BroadLink-style app exposes **Lock device**, disable it. If Intelligent AC does not expose that setting, a deeper Wi-Fi module or factory-style reset may be required. In issue #1, removing and re-adding the AC in Intelligent AC did not clear the flag, but a deeper reset changed discovery from `LOCKED=True` to `LOCKED=False`, after which Local discovery worked normally.
+
 `host_not_found`: the device was found in the account, but Home Assistant could not resolve or reach it on the LAN. Make sure Home Assistant and the AC are on the same network and that UDP traffic is not blocked.
 
 `cannot_connect`: the integration could not talk to the device with the resolved or manually entered LAN details.
+
+Known cloud setup error:
+
+`/ec4/v1/family/getallinfo failed: 不是有效的申请 (-30103)` was reported by a user whose local `LOCKED=True` issue was later solved by a device reset. Treat this as a separate cloud bootstrap failure. It may mean the cloud endpoint rejects the request context, account type, app region, or shared-device account. Local discovery can still work once the device is unlocked.
 
 ## Reverse-engineering notes
 
