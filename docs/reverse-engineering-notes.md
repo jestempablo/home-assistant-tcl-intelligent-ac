@@ -99,8 +99,8 @@ body: {"temp":230}
 - `envtemp`: current room temperature in Celsius
 - `tcl_mode`: `1` heat, `2` dry, `3` cool, `4` fan, `5` auto
 - `tcl_mark`: `0` auto, `1` low, `2` medium, `3` high, `4` mid low, `5` mid high
-- `tcl_vdir`: vertical swing code
-- `tcl_hdir`: horizontal swing code
+- `tcl_vdir`: vertical swing code; official TCL split AC UI uses `7` for up/down swing on and `0` for off
+- `tcl_hdir`: horizontal swing code; official TCL split AC UI uses `1` for left/right swing on and `0` for off
 
 ## Local test client
 

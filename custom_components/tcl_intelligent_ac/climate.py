@@ -25,6 +25,8 @@ SWING_OFF = "off"
 SWING_VERTICAL = "vertical"
 SWING_HORIZONTAL = "horizontal"
 SWING_BOTH = "both"
+VERTICAL_SWING_CODE = 7
+HORIZONTAL_SWING_CODE = 1
 
 MODE_TO_CODE = {
     HVACMode.HEAT: 1,
@@ -158,8 +160,8 @@ class TclIntelligentAcClimate(CoordinatorEntity[TclAcCoordinator], ClimateEntity
     def swing_mode(self) -> str | None:
         """Return current swing mode."""
 
-        vertical = self._state.get("tcl_vdir") == 1
-        horizontal = self._state.get("tcl_hdir") == 1
+        vertical = self._state.get("tcl_vdir") == VERTICAL_SWING_CODE
+        horizontal = self._state.get("tcl_hdir") == HORIZONTAL_SWING_CODE
         if vertical and horizontal:
             return SWING_BOTH
         if vertical:
@@ -195,8 +197,12 @@ class TclIntelligentAcClimate(CoordinatorEntity[TclAcCoordinator], ClimateEntity
 
         await self.coordinator.async_set_params(
             {
-                "tcl_vdir": 1 if swing_mode in (SWING_VERTICAL, SWING_BOTH) else 0,
-                "tcl_hdir": 1 if swing_mode in (SWING_HORIZONTAL, SWING_BOTH) else 0,
+                "tcl_vdir": (
+                    VERTICAL_SWING_CODE if swing_mode in (SWING_VERTICAL, SWING_BOTH) else 0
+                ),
+                "tcl_hdir": (
+                    HORIZONTAL_SWING_CODE if swing_mode in (SWING_HORIZONTAL, SWING_BOTH) else 0
+                ),
             }
         )
 
