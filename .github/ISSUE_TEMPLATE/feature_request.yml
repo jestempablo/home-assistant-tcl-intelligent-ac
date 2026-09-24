@@ -1,0 +1,35 @@
+name: Feature request
+description: Request an additional device control or integration capability
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: device_model
+    attributes:
+      label: AC model
+      placeholder: "TCL XA71I"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Home Assistant and integration versions
+    validations:
+      required: true
+  - type: input
+    id: app_firmware
+    attributes:
+      label: App and device firmware versions
+      description: Include these if visible in the official app; otherwise say unknown.
+  - type: textarea
+    id: feature
+    attributes:
+      label: Requested behaviour
+      description: What should Home Assistant let you do? Describe the equivalent app control, if any.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: App options and observed state changes
+      description: Screenshots and numeric control values before/after changing one option help us map features. Do not include keys, tokens, device identifiers or unredacted packet captures.

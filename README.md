@@ -151,6 +151,8 @@ Timer/reservation is intentionally not exposed. The APK maps those features to s
 - EU setup may fail during device pairing without a clear app error; use United States / Other unless you have confirmed another region works for your device.
 - LAN discovery setup requires the device to already be paired to Wi-Fi and reachable from Home Assistant. Use the included pairing CLI for accountless local pairing on tested devices.
 - Some devices can report `LOCKED=True` in BroadLink/DNA discovery. In that state, local authentication can fail with `0xffff` until the lock is cleared.
+- The current Anti-mildew switch controls `smartdesic`. Users report that this differs from the app's one-shot drying after shutdown; the correct mapping is still being investigated in [issue #3](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/3). The HA switch should not be assumed to arm that app function.
+- Swing currently supports only off, full vertical, full horizontal, and both. Fixed positions and restricted swing ranges are not exposed; the combined control writes both axes and may replace settings made in the app. Granular controls are tracked in [issue #4](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/4).
 - LAN discovery may require entering known device IP addresses if broadcast or subnet scanning is blocked by your network.
 - Pairing without the app is handled by a separate CLI tool, not by the Home Assistant config flow.
 - Other brands and models may work if they use the same BroadLink/DNA AC profile, but they are not tested.
@@ -166,15 +168,41 @@ Timer/reservation is intentionally not exposed. The APK maps those features to s
 
 `no_lan_devices`: LAN discovery did not find any supported devices or could not authenticate them. Try entering known device IP addresses, make sure Home Assistant is on the same network, and check that UDP traffic to port 80 is allowed.
 
-`locked_device`: LAN discovery found a supported AC, but the device reported `LOCKED=True` and blocked BroadLink/DNA local authentication. This can also appear in diagnostics as authentication error `0xffff`. If a BroadLink-style app exposes **Lock device**, disable it. If Intelligent AC does not expose that setting, a deeper Wi-Fi module or factory-style reset may be required. In issue #1, removing and re-adding the AC in Intelligent AC did not clear the flag, but a deeper reset changed discovery from `LOCKED=True` to `LOCKED=False`, after which Local discovery worked normally.
+`locked_device`: LAN discovery found a supported AC, but it reported `LOCKED=True` and blocked BroadLink/DNA local authentication. This can also appear as authentication error `0xffff`. If a BroadLink-style app exposes **Lock device**, disable it. Otherwise, see [Recovering a locked Wi-Fi module](#recovering-a-locked-wi-fi-module) for the local pairing workaround confirmed by users.
 
 `host_not_found`: the device was found in the account, but Home Assistant could not resolve or reach it on the LAN. Make sure Home Assistant and the AC are on the same network and that UDP traffic is not blocked.
 
 `cannot_connect`: the integration could not talk to the device with the resolved or manually entered LAN details.
 
-Known cloud setup error:
+Known cloud setup errors:
+
+`/account/login` error `数据错误 (-1005)` remains unexplained. In [issue #2](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/2), the author recovered through local pairing and Local discovery. That bypasses cloud login; it does not establish that the cloud error was fixed.
 
 `/ec4/v1/family/getallinfo failed: 不是有效的申请 (-30103)` was reported by a user whose local `LOCKED=True` issue was later solved by a device reset. Treat this as a separate cloud bootstrap failure. It may mean the cloud endpoint rejects the request context, account type, app region, or shared-device account. Local discovery can still work once the device is unlocked.
+
+### Recovering a locked Wi-Fi module
+
+Two users in [issue #2](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/2) reported recovery using the accountless pairing wizard after the official app had left local authentication locked:
+
+1. Follow [Pairing without the app](#pairing-without-the-app) from a Mac or laptop with this repository and Node.js. This reconfigures the AC's Wi-Fi connection, so have the target network details ready.
+2. Put the AC into its pairing mode and connect to its hotspot. One user needed to enter `CF` mode again before the hotspot reappeared; the sequence may differ by model.
+3. Run `node tools/tcl-ac-provision.mjs wizard` and follow the prompts.
+4. Reconnect the laptop to the normal LAN and allow the AC to restart. The issue author reported needing about 30 seconds; the wizard also polls for the returning device.
+5. Retry **Local discovery (recommended)** in Home Assistant. Enter the AC's current IP under **Known IP addresses** if needed.
+
+A wizard timeout alone does not prove pairing failed: a user reported that local discovery and control worked afterwards despite an incomplete-looking wizard result. Verify that the device actually appears and accepts commands. This is a reported workaround, not a guarantee for every firmware.
+
+If the device remains locked, [issue #1](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/1) documents recovery after a deeper Wi-Fi module/factory-style reset. Simply removing and re-adding the AC in Intelligent AC did not clear that user's lock. Use the reset procedure documented for your model.
+
+### Comparing app controls with Home Assistant
+
+Starting with v0.4.5, use **Download diagnostics** in the integration entry's menu under **Settings > Devices & services**. The integration exports a limited set of numeric control flags from the cached state, including `smartdesic`, `desicmode`, `tcl_vdir`, and `tcl_hdir` when reported by the device. It does not read stored credentials or contact the AC during the download.
+
+For mapping reports, change one option in the official app, wait at least one normal polling interval (30 seconds while the AC is reachable), and download diagnostics again. Compare the `devices[].state` objects inside the integration's `data` section. `device_index` distinguishes devices within one entry without including their names or addresses. A false `last_update_success` means the cached state may be stale; do not treat it as confirmation of the latest app change.
+
+Share the app option name and only the relevant field values before/after. Values of `-1`, missing fields and unknown numeric codes are useful evidence too. The integration omits credentials, names, addresses, temperature readings and arbitrary payload fields. Home Assistant adds its own environment metadata around the integration data, so review the full file before sharing it publicly.
+
+For Anti-Mildew, compare Cool mode before/after enabling the app option and again after shutdown. For airflow, change one axis at a time and record its `tcl_vdir` or `tcl_hdir` value for each app option. Diagnostics exposes observations only; it does not imply that a field's meaning or every model's supported values have been confirmed.
 
 ## Reverse-engineering notes
 
@@ -198,7 +226,7 @@ Confirmed parameters include:
 - `tcl_slp`: sleep mode
 - `bglight`: display / background light
 - `beep`: buzzer
-- `smartdesic`: anti-mildew
+- `smartdesic`: parameter used by the current Anti-mildew switch; equivalence to the app's drying function is unconfirmed (see issue #3)
 - `evaportor`: evaporator clean
 - `ac_health`: health mode
 - `8heat`: 8C heat / frost protection
@@ -213,8 +241,11 @@ Useful reports include:
 - Intelligent AC region
 - Home Assistant version
 - integration version
+- Intelligent AC app and device firmware versions, if available
 - whether setup was LAN-discovered, cloud-assisted, or manual
 - redacted Home Assistant logs
 - redacted state payloads if you are adding model support
 
 Do not post account passwords, session tokens, per-device keys, or full unredacted packet captures in public issues.
+
+Run the cached diagnostics tests with `python -m unittest discover -s tests -v`. They require only the Python standard library and verify filtering and the diagnostics hook without starting Home Assistant or contacting a device. GitHub Actions also runs HACS and hassfest validation; these checks do not replace testing controls on a real AC.

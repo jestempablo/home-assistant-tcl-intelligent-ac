@@ -70,12 +70,12 @@
       "no_devices_selected": "Select at least one device.",
       "already_configured": "This device is already configured.",
       "all_devices_configured": "All discovered devices are already configured.",
-      "locked_device": "A TCL AC was discovered, but it reports LOCKED=True and blocked local authentication. Disable any BroadLink-style Lock device setting, or perform a deeper Wi-Fi module/factory reset and try again."
+      "locked_device": "A TCL AC was discovered, but it reports LOCKED=True and blocks local authentication. Disable Lock device in a supported vendor app, or follow Recovering a locked Wi-Fi module in the integration documentation for the local pairing wizard. Allow the AC to restart, then retry Local discovery."
     },
     "abort": {
       "already_configured": "This device is already configured.",
       "not_supported": "No supported TCL Intelligent AC device could be authenticated at this address.",
-      "locked_device": "The discovered TCL AC reports LOCKED=True and blocks local authentication."
+      "locked_device": "The discovered TCL AC reports LOCKED=True and blocks local authentication. See Recovering a locked Wi-Fi module in the integration documentation, then retry Local discovery after the AC restarts."
     }
   }
 }
