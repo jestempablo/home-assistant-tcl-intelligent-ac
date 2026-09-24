@@ -12,7 +12,7 @@ body:
     id: ha_version
     attributes:
       label: Home Assistant version
-      placeholder: "2026.5.0"
+      placeholder: "2026.9.0"
     validations:
       required: true
 
@@ -20,7 +20,7 @@ body:
     id: integration_version
     attributes:
       label: Integration version
-      placeholder: "0.4.0"
+      placeholder: "0.4.5"
     validations:
       required: true
 
@@ -29,6 +29,30 @@ body:
     attributes:
       label: AC model
       placeholder: "TCL XA71I"
+    validations:
+      required: true
+
+  - type: input
+    id: app_version
+    attributes:
+      label: Intelligent AC app version
+      description: If you use the app; otherwise say not used.
+
+  - type: input
+    id: firmware_version
+    attributes:
+      label: Device firmware version
+      description: If visible in the app; otherwise say unknown.
+
+  - type: dropdown
+    id: setup_path
+    attributes:
+      label: Setup method
+      options:
+        - Local discovery
+        - Cloud-assisted setup
+        - Manual LAN setup
+        - Unknown
     validations:
       required: true
 
@@ -41,7 +65,7 @@ body:
         - Europe
         - China
         - Russia
-        - Manual LAN setup
+        - App not used (local setup)
         - Unknown
     validations:
       required: true
