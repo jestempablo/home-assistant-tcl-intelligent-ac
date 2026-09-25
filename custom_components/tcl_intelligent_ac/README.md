@@ -139,11 +139,24 @@ If provisioning succeeds, add the device through **Local discovery** in Home Ass
 Each configured AC exposes:
 
 - climate entity for power, HVAC mode, target temperature, fan speed, and swing
-- switches for Evaporator clean, Turbo, Eco, Quiet, Display, Buzzer, Anti-mildew, Health, and Frost protection when the device reports those parameters
+- switches for Evaporator clean, Turbo, Eco, Quiet, Display, Buzzer, Smart dehumidification, Anti-mildew (after-run drying), Health, and Frost protection when the device reports those parameters
 - Sleep select with off, normal, senior, child, and custom modes
+- separate Vertical airflow and Horizontal airflow selects; fixed positions and restricted ranges are offered when the device advertises precision airflow support
 - diagnostic sensors for outdoor temperature, coil temperature, vent temperature, error codes, filter dirty, and clean check
 
 Timer/reservation is intentionally not exposed. The APK maps those features to scheduling fields, not to one simple local toggle. Home Assistant automations cover most timer use cases more safely; keep the official app only if you specifically need its native scheduling UI.
+
+### Anti-mildew migration in v0.4.6
+
+The old **Anti-mildew** switch controlled `smartdesic`, which the official app labels Dehumidification. It is now named **Smart dehumidification**. Its unique ID, existing entity ID (including the old `anti_mildew` suffix), and command remain unchanged to preserve existing automations. User-customised names may also remain unchanged.
+
+Use the new **Anti-mildew (after-run drying)** switch (`desicmode`) for drying after shutdown. Turn it on while the AC is running in Cool or Dry, then switch the AC off normally. If an automation intended to arm drying, update it to target this new switch. The integration reports the flag returned by the AC; it does not keep it permanently enabled or start a separate drying timer. A user reported that their firmware clears it after shutdown, so arm it again before the next required cycle.
+
+### Independent airflow in v0.4.6
+
+**Vertical airflow** and **Horizontal airflow** each write only their own axis. Options come from the official app profile and the device's `if_function` capability flags: bit 7 enables fixed positions and restricted swing, and bit 2 adds the wide horizontal options. Devices without an explicit precision flag expose only off/full swing. **Off** stops movement; it does not request a particular fixed angle.
+
+The climate entity retains the existing off/vertical/horizontal/both choices for automations. On precision-capable devices, full horizontal swing uses code `10`; code `1` is a fixed left position on that profile. See the [mapping tables and evidence](docs/reverse-engineering-notes.md#airflow-and-drying-controls-v046).
 
 ## Known limitations
 
@@ -151,8 +164,8 @@ Timer/reservation is intentionally not exposed. The APK maps those features to s
 - EU setup may fail during device pairing without a clear app error; use United States / Other unless you have confirmed another region works for your device.
 - LAN discovery setup requires the device to already be paired to Wi-Fi and reachable from Home Assistant. Use the included pairing CLI for accountless local pairing on tested devices.
 - Some devices can report `LOCKED=True` in BroadLink/DNA discovery. In that state, local authentication can fail with `0xffff` until the lock is cleared.
-- The current Anti-mildew switch controls `smartdesic`. Users report that this differs from the app's one-shot drying after shutdown; the correct mapping is still being investigated in [issue #3](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/3). The HA switch should not be assumed to arm that app function.
-- Swing currently supports only off, full vertical, full horizontal, and both. Fixed positions and restricted swing ranges are not exposed; the combined control writes both axes and may replace settings made in the app. Granular controls are tracked in [issue #4](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/4).
+- Anti-mildew must be armed while the AC is running in Cool or Dry. The integration follows the device flag and does not automatically re-arm it for later shutdowns. Drying duration and physical behaviour depend on the firmware.
+- The climate entity's combined swing control still writes both axes. Use the separate airflow selects when you want to preserve the other axis. Devices without the precision capability keep only off/full swing; unrecognised codes appear as an unknown selection.
 - LAN discovery may require entering known device IP addresses if broadcast or subnet scanning is blocked by your network.
 - Pairing without the app is handled by a separate CLI tool, not by the Home Assistant config flow.
 - Other brands and models may work if they use the same BroadLink/DNA AC profile, but they are not tested.
@@ -226,7 +239,8 @@ Confirmed parameters include:
 - `tcl_slp`: sleep mode
 - `bglight`: display / background light
 - `beep`: buzzer
-- `smartdesic`: parameter used by the current Anti-mildew switch; equivalence to the app's drying function is unconfirmed (see issue #3)
+- `smartdesic`: Smart dehumidification (the old Anti-mildew entity)
+- `desicmode`: Anti-mildew / drying after shutdown; arm in Cool or Dry
 - `evaportor`: evaporator clean
 - `ac_health`: health mode
 - `8heat`: 8C heat / frost protection
@@ -248,4 +262,11 @@ Useful reports include:
 
 Do not post account passwords, session tokens, per-device keys, or full unredacted packet captures in public issues.
 
-Run the cached diagnostics tests with `python -m unittest discover -s tests -v`. They require only the Python standard library and verify filtering and the diagnostics hook without starting Home Assistant or contacting a device. GitHub Actions also runs HACS and hassfest validation; these checks do not replace testing controls on a real AC.
+Run all regression tests with Python 3.14:
+
+```sh
+python -m pip install -r requirements-test.txt
+python -m unittest discover -s tests -v
+```
+
+Entity tests use Home Assistant 2026.8.3 and mock only the device/coordinator boundary. They cover command mappings, capability gating, preserving the other airflow axis, legacy identities and drying behaviour. The cached diagnostics subset needs only the standard library: `python -m unittest discover -s tests -p test_diagnostics.py -v`. Neither suite contacts a device. GitHub Actions also runs HACS and hassfest validation; these checks do not replace physical testing on a real AC.

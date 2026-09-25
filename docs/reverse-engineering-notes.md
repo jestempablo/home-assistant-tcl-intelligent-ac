@@ -100,7 +100,7 @@ body: {"temp":230}
 - `tcl_mode`: `1` heat, `2` dry, `3` cool, `4` fan, `5` auto
 - `tcl_mark`: `0` auto, `1` low, `2` medium, `3` high, `4` mid low, `5` mid high
 - `tcl_vdir`: vertical swing code; official TCL split AC UI uses `7` for up/down swing on and `0` for off
-- `tcl_hdir`: horizontal swing code; official TCL split AC UI uses `1` for left/right swing on and `0` for off
+- `tcl_hdir`: basic horizontal swing uses `1` on / `0` off; the precision profile uses `10` for full swing and `1` for fixed left (see below)
 
 ## Local test client
 
@@ -112,3 +112,54 @@ node tools/tcl-ac-local.mjs --host 192.168.1.50 --mac aa:bb:cc:dd:ee:ff --key 00
 node tools/broadlink-discover.mjs 192.168.1.50
 node tools/broadlink-auth-test.mjs 192.168.1.50
 ```
+
+## Airflow and drying controls (v0.4.6)
+
+The mapping below was checked against a locally preserved official Intelligent AC UI profile `7c500000`, bundle `zh-cn/main.22cabb13time1553156116407.js`. Bundle SHA-256: `b4c3c3729d7af7b791967d6909281521a469cc5b79ef182b7970701009946be5`. The vendor bundle is not redistributed here. This is app-source evidence, not a claim of physical verification on every model or firmware.
+
+### Drying
+
+The app's More menu sends `desicmode` for **Anti-Mildew**, and `smartdesic` for the separate **Dehumidification** control. The Anti-Mildew help text describes drying after power-off to reduce residual moisture. Its `mutexFunc` disables arming in Heat (1), Fan (4), Auto (5), or while powered off. Thus the integration allows arming only when `pwr=1` and `tcl_mode` is Cool (3) or Dry (2).
+
+The one-shot reset is a [user observation in issue #3](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/3), not an automatic reset imposed by HA. The switch follows the returned `desicmode` state. The old `anti_mildew` identity retains its `smartdesic` command and is renamed Smart dehumidification; the new `after_run_drying` identity controls `desicmode`.
+
+### Capability flags
+
+The app's `checkHasFunction` indexes bits from the least significant bit of `if_function`. Bit 7 chooses the precision airflow UI; bit 2 enables its extra wide horizontal options. Missing, negative or non-integer capability values do not enable advanced options. `if_function` and `tcl_type` are included in cached diagnostics from v0.4.6.
+
+### Vertical precision map
+
+| Code | Option |
+| --- | --- |
+| 0 | Stop / off |
+| 7 | Full up-down swing |
+| 8 | Upper swing |
+| 9 | Lower swing |
+| 1 | Top fixed |
+| 2 | Upper fixed |
+| 3 | Middle fixed |
+| 4 | Lower fixed |
+| 5 | Bottom fixed |
+
+### Horizontal precision map
+
+| Code | Option | Required bits |
+| --- | --- | --- |
+| 0 | Stop / off | 7 |
+| 10 | Full left-right swing | 7 |
+| 11 | Left swing | 7 |
+| 12 | Middle swing | 7 |
+| 13 | Right swing | 7 |
+| 1 | Left fixed | 7 |
+| 2 | Center-left fixed | 7 |
+| 3 | Middle fixed | 7 |
+| 4 | Center-right fixed | 7 |
+| 5 | Right fixed | 7 |
+| 14 | Wide swing | 7 and 2 |
+| 15 | Center-left swing | 7 and 2 |
+| 16 | Center-right swing | 7 and 2 |
+| 6 | Left wide fixed | 7 and 2 |
+| 7 | Right wide fixed | 7 and 2 |
+| 8 | Whole angle fixed | 7 and 2 |
+
+Without bit 7, the existing basic profile remains vertical `0`/`7` and horizontal `0`/`1`. Each select sends just its axis; the legacy combined climate control intentionally still writes both. Fixed positions do not count as swing, while restricted ranges do.

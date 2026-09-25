@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -29,7 +30,10 @@ SWITCH_DESCRIPTIONS: tuple[TclAcSwitchDescription, ...] = (
     TclAcSwitchDescription(key="quiet", name="Quiet", icon="mdi:volume-low", param="qtmode"),
     TclAcSwitchDescription(key="display", name="Display", icon="mdi:television-ambient-light", param="bglight"),
     TclAcSwitchDescription(key="buzzer", name="Buzzer", icon="mdi:volume-high", param="beep"),
-    TclAcSwitchDescription(key="anti_mildew", name="Anti-mildew", icon="mdi:shield-check-outline", param="smartdesic"),
+    # Keep the legacy key/unique_id and its command so existing automations do
+    # not silently change function. Only correct its misleading display name.
+    TclAcSwitchDescription(key="anti_mildew", name="Smart dehumidification", icon="mdi:water-percent", param="smartdesic"),
+    TclAcSwitchDescription(key="after_run_drying", name="Anti-mildew (after-run drying)", icon="mdi:shield-check-outline", param="desicmode"),
     TclAcSwitchDescription(key="health", name="Health", icon="mdi:heart-pulse", param="ac_health"),
     TclAcSwitchDescription(key="eight_degree_heat", name="Frost protection", icon="mdi:snowflake-thermometer", param="8heat"),
 )
@@ -87,6 +91,12 @@ class TclAcSwitch(CoordinatorEntity[TclAcCoordinator], SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the feature on."""
 
+        if self.entity_description.param == "desicmode":
+            state = self.coordinator.data or {}
+            if state.get("pwr") != 1 or state.get("tcl_mode") not in (2, 3):
+                raise ServiceValidationError(
+                    "Anti-mildew can only be armed while the AC is cooling or drying."
+                )
         await self.coordinator.async_set_param(self.entity_description.param, 1)
 
     async def async_turn_off(self, **kwargs: Any) -> None:

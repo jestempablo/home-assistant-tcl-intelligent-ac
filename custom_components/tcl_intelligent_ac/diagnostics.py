@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 # entry.data, device metadata, exceptions, arbitrary keys or nested payloads.
 CONTROL_FIELDS = frozenset(
     {
-        "pwr", "tcl_mode", "tcl_mark", "tcl_vdir", "tcl_hdir", "3dairmode",
+        "if_function", "tcl_type", "pwr", "tcl_mode", "tcl_mark", "tcl_vdir", "tcl_hdir", "3dairmode",
         "smartdesic", "desicmode", "evaportor", "ac_health", "tcl_slp",
         "pwfmode", "qtmode", "ecomode", "bglight", "beep", "8heat",
     }
