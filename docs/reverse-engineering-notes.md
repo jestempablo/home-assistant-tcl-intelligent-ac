@@ -123,9 +123,13 @@ The app's More menu sends `desicmode` for **Anti-Mildew**, and `smartdesic` for 
 
 The one-shot reset is a [user observation in issue #3](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/3), not an automatic reset imposed by HA. The switch follows the returned `desicmode` state. The old `anti_mildew` identity retains its `smartdesic` command and is renamed Smart dehumidification; the new `after_run_drying` identity controls `desicmode`.
 
+The [2026-09-25 physical test](hardware-tests-2026-09-25.md) did not produce after-run fan operation on a TAC-12CHSD/XA71I, even though the device returned `desicmode=1`. App-source mapping and command readback therefore do not establish end-to-end drying on that unit. Issue #3 remains open for native-app comparison and firmware-specific investigation.
+
 ### Capability flags
 
 The app's `checkHasFunction` indexes bits from the least significant bit of `if_function`. Bit 7 chooses the precision airflow UI; bit 2 enables its extra wide horizontal options. Missing, negative or non-integer capability values do not enable advanced options. `if_function` and `tcl_type` are included in cached diagnostics from v0.4.6.
+
+These flags do not independently confirm a motor on each axis. The physically tested unit reported `if_function=8472704` and accepted horizontal codes, but its owner reported no motorised horizontal function. Do not infer physical horizontal support from bit 7 or command acceptance alone.
 
 ### Vertical precision map
 

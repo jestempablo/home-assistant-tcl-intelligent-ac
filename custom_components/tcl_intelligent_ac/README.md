@@ -152,11 +152,15 @@ The old **Anti-mildew** switch controlled `smartdesic`, which the official app l
 
 Use the new **Anti-mildew (after-run drying)** switch (`desicmode`) for drying after shutdown. Turn it on while the AC is running in Cool or Dry, then switch the AC off normally. If an automation intended to arm drying, update it to target this new switch. The integration reports the flag returned by the AC; it does not keep it permanently enabled or start a separate drying timer. A user reported that their firmware clears it after shutdown, so arm it again before the next required cycle.
 
+**Physical drying remains under investigation in [issue #3](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/3).** The field mapping matches the preserved official app profile, but a physical test on one TAC-12CHSD/XA71I accepted `desicmode=1` without running the fan after shutdown. Acceptance of the flag is not proof of drying. See the [physical test report](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/blob/main/docs/hardware-tests-2026-09-25.md) for conditions and remaining checks.
+
 ### Independent airflow in v0.4.6
 
 **Vertical airflow** and **Horizontal airflow** each write only their own axis. Options come from the official app profile and the device's `if_function` capability flags: bit 7 enables fixed positions and restricted swing, and bit 2 adds the wide horizontal options. Devices without an explicit precision flag expose only off/full swing. **Off** stops movement; it does not request a particular fixed angle.
 
 The climate entity retains the existing off/vertical/horizontal/both choices for automations. Basic-profile devices use code `1` for each axis; precision devices use vertical `7` and horizontal `10` for full swing. Code `1` is a fixed position on the precision profile. When capability flags are unavailable, the old vertical `7` / horizontal `1` fallback is retained. See the [mapping tables and evidence](docs/reverse-engineering-notes.md#airflow-and-drying-controls-v046).
+
+Capability flags select protocol options; they do not establish that both airflow axes are motorised. On the physically tested TAC-12CHSD/XA71I, vertical full/upper/lower swing, top/middle/bottom fixed positions and stop worked. The owner reported no motorised horizontal movement, despite the device accepting horizontal codes. Intermediate vertical fixed positions and physical horizontal movement remain unverified.
 
 ## Known limitations
 
