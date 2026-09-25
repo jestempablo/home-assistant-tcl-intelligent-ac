@@ -156,7 +156,7 @@ Use the new **Anti-mildew (after-run drying)** switch (`desicmode`) for drying a
 
 **Vertical airflow** and **Horizontal airflow** each write only their own axis. Options come from the official app profile and the device's `if_function` capability flags: bit 7 enables fixed positions and restricted swing, and bit 2 adds the wide horizontal options. Devices without an explicit precision flag expose only off/full swing. **Off** stops movement; it does not request a particular fixed angle.
 
-The climate entity retains the existing off/vertical/horizontal/both choices for automations. On precision-capable devices, full horizontal swing uses code `10`; code `1` is a fixed left position on that profile. See the [mapping tables and evidence](docs/reverse-engineering-notes.md#airflow-and-drying-controls-v046).
+The climate entity retains the existing off/vertical/horizontal/both choices for automations. Basic-profile devices use code `1` for each axis; precision devices use vertical `7` and horizontal `10` for full swing. Code `1` is a fixed position on the precision profile. When capability flags are unavailable, the old vertical `7` / horizontal `1` fallback is retained. See the [mapping tables and evidence](docs/reverse-engineering-notes.md#airflow-and-drying-controls-v046).
 
 ## Known limitations
 

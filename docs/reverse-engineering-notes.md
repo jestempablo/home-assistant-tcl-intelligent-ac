@@ -99,7 +99,7 @@ body: {"temp":230}
 - `envtemp`: current room temperature in Celsius
 - `tcl_mode`: `1` heat, `2` dry, `3` cool, `4` fan, `5` auto
 - `tcl_mark`: `0` auto, `1` low, `2` medium, `3` high, `4` mid low, `5` mid high
-- `tcl_vdir`: vertical swing code; official TCL split AC UI uses `7` for up/down swing on and `0` for off
+- `tcl_vdir`: basic vertical swing uses `1` on / `0` off; precision full swing uses `7` (see below)
 - `tcl_hdir`: basic horizontal swing uses `1` on / `0` off; the precision profile uses `10` for full swing and `1` for fixed left (see below)
 
 ## Local test client
@@ -162,4 +162,6 @@ The app's `checkHasFunction` indexes bits from the least significant bit of `if_
 | 7 | Right wide fixed | 7 and 2 |
 | 8 | Whole angle fixed | 7 and 2 |
 
-Without bit 7, the existing basic profile remains vertical `0`/`7` and horizontal `0`/`1`. Each select sends just its axis; the legacy combined climate control intentionally still writes both. Fixed positions do not count as swing, while restricted ranges do.
+Without bit 7, the app's basic Swing Flow controls toggle **both axes** with `0`/`1`. A live basic-profile unit ignored the old vertical code `7`; the corrected code is `1`. When `if_function` is missing or invalid, the integration preserves the old vertical `7` / horizontal `1` fallback rather than inferring fixed-position support. Each select sends just its axis; the legacy combined climate control intentionally still writes both. Fixed positions do not count as swing, while restricted ranges do.
+
+The basic mapping is also visible in the app's Swing Flow popup: both descriptions have `value:1`, and its click handler sends `current_value ? 0 : 1`. This differs from the precision UI above, where `1` is a fixed position.

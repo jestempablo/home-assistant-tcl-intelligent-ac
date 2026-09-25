@@ -49,8 +49,12 @@ def has_airflow_feature(state: dict[str, Any], bit: int) -> bool:
 
 
 def full_swing_code(state: dict[str, Any], param: str) -> int:
-    """Distinguish basic horizontal swing (1) from precision swing (10)."""
+    """Distinguish basic swing (1) from precision vertical (7)/horizontal (10)."""
     if param == VERTICAL:
+        flags = state.get("if_function")
+        if type(flags) is int and flags >= 0:
+            return 7 if has_airflow_feature(state, PRECISION_AIRFLOW_BIT) else 1
+        # Preserve the pre-v0.4.6 command when capabilities are not reported.
         return 7
     if param == HORIZONTAL:
         return 10 if has_airflow_feature(state, PRECISION_AIRFLOW_BIT) else 1

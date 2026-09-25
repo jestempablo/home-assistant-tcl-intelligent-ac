@@ -54,12 +54,12 @@ class AirflowTests(unittest.IsolatedAsyncioTestCase):
         await entity.async_turn_off()
         device.coordinator.async_set_param.assert_awaited_with("pwr", 0)
 
-    async def test_basic_devices_keep_legacy_codes(self):
+    async def test_basic_devices_use_boolean_swing_and_unknown_flags_keep_legacy(self):
         for flags in (None, -1, 0, 4, "128", True):
             with self.subTest(flags=flags):
                 device = runtime(if_function=flags, tcl_vdir=0, tcl_hdir=0)
                 for key, param, code in (
-                    ("vertical_airflow", "tcl_vdir", 7),
+                    ("vertical_airflow", "tcl_vdir", 1 if type(flags) is int and flags >= 0 else 7),
                     ("horizontal_airflow", "tcl_hdir", 1),
                 ):
                     entity = select_entity(device, key)
@@ -125,18 +125,20 @@ class AirflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(entity.available)
 
     async def test_combined_climate_control_keeps_api_and_uses_correct_profile(self):
-        for flags, horizontal_code in ((0, 1), (128, 10)):
+        for flags, vertical_code, horizontal_code in ((0, 1, 1), (128, 7, 10), (None, 7, 1)):
             device = runtime(if_function=flags)
             entity = climate.TclIntelligentAcClimate(device)
             self.assertEqual(entity.swing_modes, ["off", "vertical", "horizontal", "both"])
             for mode, vertical, horizontal in (
-                ("off", 0, 0), ("vertical", 7, 0),
-                ("horizontal", 0, horizontal_code), ("both", 7, horizontal_code),
+                ("off", 0, 0), ("vertical", vertical_code, 0),
+                ("horizontal", 0, horizontal_code), ("both", vertical_code, horizontal_code),
             ):
                 await entity.async_set_swing_mode(mode)
                 device.coordinator.async_set_params.assert_awaited_with(
                     {"tcl_vdir": vertical, "tcl_hdir": horizontal}
                 )
+                device.coordinator.data.update(tcl_vdir=vertical, tcl_hdir=horizontal)
+                self.assertEqual(entity.swing_mode, mode)
 
     async def test_climate_distinguishes_fixed_positions_and_restricted_swing(self):
         device = runtime(if_function=132, tcl_vdir=3, tcl_hdir=1)
