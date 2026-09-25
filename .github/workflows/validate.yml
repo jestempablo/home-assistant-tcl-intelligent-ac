@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  test-diagnostics:
-    name: Diagnostics tests
+  test:
+    name: Entity and diagnostics tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,9 +21,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
-      - name: Test cached diagnostics and data filtering
+      - name: Install Home Assistant test dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Test entities, commands, and cached diagnostics
         run: python -m unittest discover -s tests -v
 
   validate-hacs:

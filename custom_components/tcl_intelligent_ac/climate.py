@@ -16,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .airflow import HORIZONTAL, VERTICAL, full_swing_code, is_swinging
 from .const import CONF_DEVICES, CONF_KEY, CONF_MAC, DOMAIN
 from .coordinator import TclAcCoordinator, TclAcRuntime, runtime_from_config
 
@@ -25,8 +26,6 @@ SWING_OFF = "off"
 SWING_VERTICAL = "vertical"
 SWING_HORIZONTAL = "horizontal"
 SWING_BOTH = "both"
-VERTICAL_SWING_CODE = 7
-HORIZONTAL_SWING_CODE = 1
 
 MODE_TO_CODE = {
     HVACMode.HEAT: 1,
@@ -117,6 +116,8 @@ class TclIntelligentAcClimate(CoordinatorEntity[TclAcCoordinator], ClimateEntity
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.FAN_MODE
         | ClimateEntityFeature.SWING_MODE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF
     )
 
     def __init__(self, runtime: TclAcRuntime) -> None:
@@ -160,8 +161,8 @@ class TclIntelligentAcClimate(CoordinatorEntity[TclAcCoordinator], ClimateEntity
     def swing_mode(self) -> str | None:
         """Return current swing mode."""
 
-        vertical = self._state.get("tcl_vdir") == VERTICAL_SWING_CODE
-        horizontal = self._state.get("tcl_hdir") == HORIZONTAL_SWING_CODE
+        vertical = is_swinging(self._state, VERTICAL)
+        horizontal = is_swinging(self._state, HORIZONTAL)
         if vertical and horizontal:
             return SWING_BOTH
         if vertical:
@@ -198,10 +199,12 @@ class TclIntelligentAcClimate(CoordinatorEntity[TclAcCoordinator], ClimateEntity
         await self.coordinator.async_set_params(
             {
                 "tcl_vdir": (
-                    VERTICAL_SWING_CODE if swing_mode in (SWING_VERTICAL, SWING_BOTH) else 0
+                    full_swing_code(self._state, VERTICAL)
+                    if swing_mode in (SWING_VERTICAL, SWING_BOTH) else 0
                 ),
                 "tcl_hdir": (
-                    HORIZONTAL_SWING_CODE if swing_mode in (SWING_HORIZONTAL, SWING_BOTH) else 0
+                    full_swing_code(self._state, HORIZONTAL)
+                    if swing_mode in (SWING_HORIZONTAL, SWING_BOTH) else 0
                 ),
             }
         )

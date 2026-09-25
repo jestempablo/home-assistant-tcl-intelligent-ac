@@ -46,7 +46,7 @@ class DiagnosticsTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_control_flags_leave_the_hook(self):
         state = {
             "pwr": 1, "tcl_mode": 3, "smartdesic": 0, "desicmode": 1,
-            "tcl_vdir": 7, "tcl_hdir": 1,
+            "tcl_vdir": 7, "tcl_hdir": 1, "if_function": 132, "tcl_type": 0,
             "key": "SYNTHETIC-SECRET", "token": "SYNTHETIC-TOKEN",
             "mac": "SYNTHETIC-MAC", "host": "SYNTHETIC-HOST",
             "name": "SYNTHETIC-NAME", "temp": 240, "envtemp": 25,
@@ -55,7 +55,7 @@ class DiagnosticsTests(unittest.IsolatedAsyncioTestCase):
         result = await self.get_diagnostics([state])
         self.assertEqual(result["devices"][0]["state"], {
             "pwr": 1, "tcl_mode": 3, "smartdesic": 0, "desicmode": 1,
-            "tcl_vdir": 7, "tcl_hdir": 1,
+            "tcl_vdir": 7, "tcl_hdir": 1, "if_function": 132, "tcl_type": 0,
         })
         self.assertNotIn("SYNTHETIC", json.dumps(result))
         self.assertEqual(state["key"], "SYNTHETIC-SECRET")
