@@ -166,6 +166,7 @@ Capability flags select protocol options; they do not establish that both airflo
 
 - Cloud-assisted setup is confirmed only for the United States / Other region.
 - EU setup may fail during device pairing without a clear app error; use United States / Other unless you have confirmed another region works for your device.
+- Local control currently supports only BroadLink device type `0x507c`, which the tested units report after pairing as United States / Other. The app writes a region-specific device type while pairing (Europe `0x507a`), so units paired in another region are probably not discovered yet. The older Wi-Fi module `0x4e2e` most likely needs a different, binary protocol. See [open questions](docs/reverse-engineering-notes.md#open-questions).
 - LAN discovery setup requires the device to already be paired to Wi-Fi and reachable from Home Assistant. Use the included pairing CLI for accountless local pairing on tested devices.
 - Some devices can report `LOCKED=True` in BroadLink/DNA discovery. In that state, local authentication can fail with `0xffff` until the lock is cleared.
 - Anti-mildew must be armed while the AC is running in Cool or Dry. The integration follows the device flag and does not automatically re-arm it for later shutdowns. Drying duration and physical behaviour depend on the firmware.

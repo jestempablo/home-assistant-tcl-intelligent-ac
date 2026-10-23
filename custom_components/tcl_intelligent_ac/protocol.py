@@ -46,6 +46,14 @@ class TclAcLockedError(TclAcAuthError):
     """Raised when a device reports the BroadLink/DNA locked flag."""
 
 
+class TclAcResponseError(TclAcError):
+    """Raised when a device answers a local command with a BroadLink/DNA error code."""
+
+    def __init__(self, message: str, error_code: int) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
 @dataclass(frozen=True)
 class TclAcDevice:
     """Connection details for one TCL AC."""
@@ -150,11 +158,22 @@ class TclAcClient:
         return bytes(packet)
 
     def _decode_response(self, packet: bytes) -> dict[str, Any]:
-        if len(packet) < 72:
+        if len(packet) < 0x38:
             raise TclAcError(f"Response too short: {len(packet)}")
         if struct.unpack_from("<H", packet, 0x26)[0] != RESPONSE_COMMAND:
             command = struct.unpack_from("<H", packet, 0x26)[0]
             raise TclAcError(f"Unexpected response command: 0x{command:04x}")
+
+        # Error replies may be header-only or carry an empty payload, so check the code first.
+        error_code = struct.unpack_from("<H", packet, 0x22)[0]
+        if error_code != 0:
+            signed_code = struct.unpack_from("<h", packet, 0x22)[0]
+            raise TclAcResponseError(
+                f"Device returned error 0x{error_code:04x} ({signed_code})",
+                error_code=error_code,
+            )
+        if len(packet) < 72:
+            raise TclAcError(f"Response too short: {len(packet)}")
 
         plain = _aes_cbc_decrypt(packet[0x38:], self._key)
         expected_checksum = struct.unpack_from("<H", packet, 0x34)[0]
