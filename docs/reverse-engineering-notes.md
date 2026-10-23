@@ -36,6 +36,7 @@ Outer packet:
 | --- | ---: | --- |
 | `0x00` | 8 | magic `5aa5aa555aa5aa55` |
 | `0x20` | 2 | packet checksum, little endian |
+| `0x22` | 2 | error code in responses, little endian; `0` on success, e.g. `0xffff` (-1) or `0xfffb` (-5) |
 | `0x24` | 2 | device type `0x507c`, little endian |
 | `0x26` | 2 | command `0x006a`, response `0x03ee` |
 | `0x28` | 2 | request nonce copied into response |
@@ -169,3 +170,15 @@ These flags do not independently confirm a motor on each axis. The physically te
 Without bit 7, the app's basic Swing Flow controls toggle **both axes** with `0`/`1`. A live basic-profile unit ignored the old vertical code `7`; the corrected code is `1`. When `if_function` is missing or invalid, the integration preserves the old vertical `7` / horizontal `1` fallback rather than inferring fixed-position support. Each select sends just its axis; the legacy combined climate control intentionally still writes both. Fixed positions do not count as swing, while restricted ranges do.
 
 The basic mapping is also visible in the app's Swing Flow popup: both descriptions have `value:1`, and its click handler sends `current_value ? 0 : 1`. This differs from the precision UI above, where `1` is a fixed position.
+
+## Open questions
+
+### App region and device type
+
+While pairing, the Intelligent AC app writes `devicetype` to the module through a DNA `set` (`FindDeviceAddingActivity`, `DeviceRenameActivity`). The value depends on the app region: Europe `20602` (`0x507a`), United States / Other `20604` (`0x507c`), Russia `20603` (`0x507b`) and China `20744` (`0x5108`). Both tested units were paired as United States / Other and report BroadLink device type `0x507c`. A full `get` does not return `devicetype`.
+
+The integration accepts only `0x507c` in local discovery and writes it into every request header. A unit paired in the Europe region therefore probably reports `0x507a` and is skipped. This may explain why EU setup failed in testing, but it has not been verified on hardware. To check, pair one unit in the Europe region, read its device type with `node tools/broadlink-auth-test.mjs <ac-ip>`, then pair it again as United States / Other. If the type changes, local discovery should accept the other region values and requests should carry the discovered type.
+
+### Older Wi-Fi module `0x4e2e`
+
+[Issue #8](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/8) reports a TAC-24CHSD/XA71I whose module passes BroadLink discovery and authentication as device type `0x4e2e`. It answers the integration's JSON `get` (sent with a `0x507c` header) with error `0xfffb` (-5). Intelligent AC treats PID `2e4e0000` as `PID_OLD`, with its own control script and a profile using `save_temp`, `ac_vdir`, `ac_hdir` and `ac_errcode`. The older TFIAC app calls the same type `TCL_AIRV2` (`20014`) and controls it with binary passthrough frames from its native `libBLTclSplitAirconParse` parser, not with JSON. Support needs that protocol and a tester with this hardware.
