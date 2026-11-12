@@ -18,6 +18,9 @@ IV = bytes.fromhex("562e17996d093d28ddb3ba695a2e6f58")
 MAGIC = bytes.fromhex("5aa5aa555aa5aa55")
 INNER_MAGIC = bytes.fromhex("a5a55a5a")
 DEVICE_TYPE = 0x507C
+# The app writes a region-specific type while pairing: United States / Other 0x507c,
+# Europe 0x507a. Both answer the same JSON protocol under the 0x507c request header.
+SUPPORTED_DEVICE_TYPES = frozenset({DEVICE_TYPE, 0x507A})
 COMMAND = 0x006A
 BROADLINK_AUTH_COMMAND = 0x0065
 BROADLINK_INIT_KEY = bytes.fromhex("097628343fe99e23765c1513accf8b02")
@@ -495,7 +498,7 @@ def _parse_discovery_response(packet: bytes, host: str) -> TclAcDiscovery | None
         return None
 
     devtype = struct.unpack_from("<H", packet, 0x34)[0]
-    if devtype != DEVICE_TYPE:
+    if devtype not in SUPPORTED_DEVICE_TYPES:
         return None
 
     mac = normalize_mac(packet[0x3A:0x40][::-1].hex())

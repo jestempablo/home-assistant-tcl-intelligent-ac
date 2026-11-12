@@ -69,5 +69,38 @@ class ResponseDecodingTests(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, protocol.TclAcResponseError)
 
 
+
+def discovery_reply(devtype, mac="24:df:a7:00:00:01", name=b"OEM_TCLISO_000001"):
+    """Frame a BroadLink/DNA discovery reply as the module sends it."""
+
+    packet = bytearray(0x80)
+    struct.pack_into("<H", packet, 0x34, devtype)
+    packet[0x3A:0x40] = bytes.fromhex(mac.replace(":", ""))[::-1]
+    packet[0x40 : 0x40 + len(name)] = name
+    return bytes(packet)
+
+
+class DiscoveryParsingTests(unittest.TestCase):
+    def test_united_states_region_device_is_discovered(self):
+        found = protocol._parse_discovery_response(discovery_reply(0x507C), "192.0.2.10")
+        self.assertEqual(found.devtype, 0x507C)
+        self.assertEqual(found.mac, "24:df:a7:00:00:01")
+        self.assertEqual(found.name, "OEM_TCLISO_000001")
+
+    def test_europe_region_device_is_discovered(self):
+        # A Star-Light ACT-12EAWF paired in the Europe region reports 0x507a and
+        # answers the same JSON protocol as 0x507c units.
+        found = protocol._parse_discovery_response(discovery_reply(0x507A), "192.0.2.10")
+        self.assertIsNotNone(found)
+        self.assertEqual(found.devtype, 0x507A)
+        self.assertEqual(found.host, "192.0.2.10")
+
+    def test_older_module_is_not_discovered(self):
+        # Issue #8: 0x4e2e needs a different, binary protocol.
+        self.assertIsNone(
+            protocol._parse_discovery_response(discovery_reply(0x4E2E), "192.0.2.10")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

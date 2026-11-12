@@ -177,7 +177,7 @@ The basic mapping is also visible in the app's Swing Flow popup: both descriptio
 
 While pairing, the Intelligent AC app writes `devicetype` to the module through a DNA `set` (`FindDeviceAddingActivity`, `DeviceRenameActivity`). The value depends on the app region: Europe `20602` (`0x507a`), United States / Other `20604` (`0x507c`), Russia `20603` (`0x507b`) and China `20744` (`0x5108`). Both tested units were paired as United States / Other and report BroadLink device type `0x507c`. A full `get` does not return `devicetype`.
 
-The integration accepts only `0x507c` in local discovery and writes it into every request header. A unit paired in the Europe region therefore probably reports `0x507a` and is skipped. This may explain why EU setup failed in testing, but it has not been verified on hardware. To check, pair one unit in the Europe region, read its device type with `node tools/broadlink-auth-test.mjs <ac-ip>`, then pair it again as United States / Other. If the type changes, local discovery should accept the other region values and requests should carry the discovered type.
+The integration accepts `0x507c` and `0x507a` in local discovery and writes `0x507c` into every request header. A Star-Light ACT-12EAWF (TCL OEM module named `OEM_TCLISO_*`, MAC prefix `24:df:a7`) reports `0x507a`, the Europe value. Before `0x507a` was accepted, local discovery skipped it. With it accepted, the unit passed BroadLink authentication, answered a full `get` under both a `0x507a` and a `0x507c` request header, and power and target temperature changes from Home Assistant worked. The Russia `0x507b` and China `0x5108` values remain unverified and are still skipped.
 
 ### Older Wi-Fi module `0x4e2e`
 
