@@ -181,4 +181,14 @@ The integration accepts `0x507c` and `0x507a` in local discovery. Its BroadLink 
 
 ### Older Wi-Fi module `0x4e2e`
 
-[Issue #8](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/8) reports a TAC-24CHSD/XA71I whose module passes BroadLink discovery and authentication as device type `0x4e2e`. It answers the integration's JSON `get` (sent with a `0x507c` header) with error `0xfffb` (-5). Intelligent AC treats PID `2e4e0000` as `PID_OLD`, with its own control script and a profile using `save_temp`, `ac_vdir`, `ac_hdir` and `ac_errcode`. The older TFIAC app calls the same type `TCL_AIRV2` (`20014`) and controls it with binary passthrough frames from its native `libBLTclSplitAirconParse` parser, not with JSON. Support needs that protocol and a tester with this hardware.
+[Issue #8](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/issues/8) reports a TAC-24CHSD/XA71I whose module passes BroadLink discovery and authentication as device type `0x4e2e`. Authentication returns device id `2` and succeeds even though discovery reports the lock flag. The module answers the JSON `get` with error `0xfffb` (-5) under both a `0x4e2e` and a `0x507c` request header. With device id `1` instead of `2`, the reply is header-only.
+
+Intelligent AC treats PID `2e4e0000` as `PID_OLD`, with its own encrypted control script and a profile using `save_temp`, `ac_vdir`, `ac_hdir` and `ac_errcode`. The older TFIAC app calls the same type `TCL_AIRV2` (`20014`) and talks to it through its native `libBLTclSplitAirconParse` parser:
+
+- `getSplitAirconInfoBytes()` returns the fixed status request `bb 00 01 04 02 01 00 bd`. TFIAC sends it through the BroadLink SDK `passthrough` call (`api_id` 9000, `format` `bytes`).
+- `crc_calculate` XORs the bytes from the `0xbb` header onward. The last byte of each frame is that XOR.
+- `parseSplitAirconInfo()` reads the reply from byte 7 onward, with no length prefix or header check.
+
+This is TCL's serial (UART) protocol. A frame starts with `0xbb`, followed by two address bytes, a command (`0x04` status, `0x03` set), the data length N, N data bytes and the XOR. ESPHome components for TCL units, such as [tcl_ac_esphome](https://github.com/lNikazzzl/tcl_ac_esphome), poll the indoor unit with the same status request over UART. The module most likely relays these frames between the network and the AC, so the JSON protocol does not apply.
+
+How the frame is wrapped in the `0x006a` payload is still unverified. python-broadlink prefixes passthrough frames for other BroadLink-based devices, such as `hvac` (`0x4e2a`) and `hysen`, with a 2-byte little-endian length. For device type `0x4e2e`, `tools/broadlink-auth-test.mjs` sends the status request with that prefix and then as the bare frame, and prints the decrypted reply. It sends no set commands. Support would also need the reply's field map, the set frame built by `setSplitAirconInfo()`, and a tester with this hardware.
