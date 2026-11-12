@@ -14,11 +14,15 @@ Tested hardware:
 - Local UDP control over BroadLink/DNA framing
 - Accountless local Wi-Fi pairing through `tools/tcl-ac-provision.mjs`
 
-Not tested:
+Reported by contributors:
+
+- Star-Light ACT-12EAWF (TCL OEM module) paired in the Europe region, BroadLink device type `0x507a`: Local discovery, authentication, state reads, and power and target temperature changes ([#10](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/pull/10))
+
+Not tested by the maintainer:
 
 - Other TCL models
 - Other OEM brands using the same BroadLink/DNA platform
-- Europe, China, and Russia account regions
+- Europe, China, and Russia account regions (see the contributor report above for Europe)
 - Devices added through another branded app
 
 Maintenance note: this project is maintained on a best-effort basis. Issues and pull requests are welcome, especially for additional models and regions, but support for untested hardware cannot be promised.
@@ -29,7 +33,7 @@ For the tested TCL XA71I local setup path, the official **Intelligent AC** app i
 
 For cloud-assisted setup, create and configure your device in the official **Intelligent AC** app first. LAN discovery setup can add already-paired devices without logging in to Intelligent AC.
 
-During testing, the working region was **United States / Other**. The **Europe** region may let the app setup continue without a clear error, but device pairing did not work in testing. Switching the same setup to **United States / Other** made pairing and Home Assistant setup work. Older Intelligent AC manuals still document a European server, but this project has not found a working EU setup path. China and Russia are present in the app but have not been tested.
+During testing, the working region was **United States / Other**. The **Europe** region may let the app setup continue without a clear error, but device pairing did not work in testing. Switching the same setup to **United States / Other** made pairing and Home Assistant setup work. Older Intelligent AC manuals still document a European server, but the maintainer has not found a working EU setup path. A contributor's unit paired in the Europe region does work through **Local discovery** from v0.4.8 ([#10](https://github.com/jestempablo/home-assistant-tcl-intelligent-ac/pull/10)). China and Russia are present in the app but have not been tested.
 
 If the app asks for an activation code, choose **Enter manually** and enter:
 
@@ -173,7 +177,7 @@ Capability flags select protocol options; they do not establish that both airflo
 - The climate entity's combined swing control still writes both axes. Use the separate airflow selects when you want to preserve the other axis. Devices without the precision capability keep only off/full swing; unrecognised codes appear as an unknown selection.
 - LAN discovery may require entering known device IP addresses if broadcast or subnet scanning is blocked by your network.
 - Pairing without the app is handled by a separate CLI tool, not by the Home Assistant config flow.
-- Other brands and models may work if they use the same BroadLink/DNA AC profile, but they are not tested.
+- Other brands and models may work if they use the same BroadLink/DNA AC profile, but apart from the contributor report at the top of this README they are not tested.
 - Cloud control is not implemented. Cloud is used only to bootstrap local control.
 - Device keys, MAC addresses, and logs should be treated as private if you share diagnostics publicly.
 - HACS and Home Assistant may cache brand images. If the icon does not show immediately after installation, restart Home Assistant and refresh the browser or mobile app.

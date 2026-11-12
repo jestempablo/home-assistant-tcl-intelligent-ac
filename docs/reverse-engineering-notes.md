@@ -25,7 +25,7 @@ The app normally gets device metadata from the BroadLink cloud, including MAC, l
 - Port: `80`
 - Discovery also works over BroadLink-style UDP; both tested ACs responded from their LAN IPs.
 - Tested discovery response fields:
-  - `devtype`: `0x507c`
+  - `devtype`: `0x507c` on the maintainer's units; a unit paired in the Europe region reports `0x507a`
   - `name`: `OEM_TCLISO_<mac suffix>`
   - `mac`: at response offset `0x3a..0x3f`, reversed
 - Control packets use BroadLink/DNA framing with magic `5aa5aa555aa5aa55`.
@@ -37,7 +37,7 @@ Outer packet:
 | `0x00` | 8 | magic `5aa5aa555aa5aa55` |
 | `0x20` | 2 | packet checksum, little endian |
 | `0x22` | 2 | error code in responses, little endian; `0` on success, e.g. `0xffff` (-1) or `0xfffb` (-5) |
-| `0x24` | 2 | device type `0x507c`, little endian |
+| `0x24` | 2 | device type, little endian: the discovered type in authentication, `0x507c` in the integration's control requests |
 | `0x26` | 2 | command `0x006a`, response `0x03ee` |
 | `0x28` | 2 | request nonce copied into response |
 | `0x2a` | 6 | reversed device MAC |
@@ -175,9 +175,9 @@ The basic mapping is also visible in the app's Swing Flow popup: both descriptio
 
 ### App region and device type
 
-While pairing, the Intelligent AC app writes `devicetype` to the module through a DNA `set` (`FindDeviceAddingActivity`, `DeviceRenameActivity`). The value depends on the app region: Europe `20602` (`0x507a`), United States / Other `20604` (`0x507c`), Russia `20603` (`0x507b`) and China `20744` (`0x5108`). Both tested units were paired as United States / Other and report BroadLink device type `0x507c`. A full `get` does not return `devicetype`.
+While pairing, the Intelligent AC app writes `devicetype` to the module through a DNA `set` (`FindDeviceAddingActivity`, `DeviceRenameActivity`). The value depends on the app region: Europe `20602` (`0x507a`), United States / Other `20604` (`0x507c`), Russia `20603` (`0x507b`) and China `20744` (`0x5108`). Both maintainer units were paired as United States / Other and report BroadLink device type `0x507c`. A full `get` does not return `devicetype`.
 
-The integration accepts `0x507c` and `0x507a` in local discovery and writes `0x507c` into every request header. A Star-Light ACT-12EAWF (TCL OEM module named `OEM_TCLISO_*`, MAC prefix `24:df:a7`) reports `0x507a`, the Europe value. Before `0x507a` was accepted, local discovery skipped it. With it accepted, the unit passed BroadLink authentication, answered a full `get` under both a `0x507a` and a `0x507c` request header, and power and target temperature changes from Home Assistant worked. The Russia `0x507b` and China `0x5108` values remain unverified and are still skipped.
+The integration accepts `0x507c` and `0x507a` in local discovery. Its BroadLink authentication request (`0x0065`) carries the discovered type, and its TCL control requests (`0x006a`) always carry `0x507c`. `tools/tcl-ac-provision.mjs` and `tools/broadlink-auth-test.mjs` send the discovered type in both, and `tools/tcl-ac-local.mjs` always sends `0x507c`. A Star-Light ACT-12EAWF (TCL OEM module named `OEM_TCLISO_*`, MAC prefix `24:df:a7`) reports `0x507a`, the Europe value. Before `0x507a` was accepted, local discovery skipped it. With it accepted, the unit passed BroadLink authentication, answered a full `get` under both a `0x507a` and a `0x507c` request header, and power and target temperature changes from Home Assistant worked. The Russia `0x507b` and China `0x5108` values remain unverified and are still skipped by local discovery. To report one of them, run `node tools/broadlink-auth-test.mjs <ac-ip>`: it does not filter by device type and prints the type the module reports.
 
 ### Older Wi-Fi module `0x4e2e`
 
