@@ -1,2 +1,4 @@
 # Entity regressions run against the version used for the live installation.
+# Keep it in step with the CI matrix in .github/workflows/validate.yml, which
+# also runs them on a release from before 2026.11.
 homeassistant==2026.11.1
