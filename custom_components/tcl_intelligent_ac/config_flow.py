@@ -24,6 +24,7 @@ from .cloud import (
     get_cloud_devices,
 )
 from .const import CONF_DEVICE_ID, CONF_DEVICES, CONF_KEY, CONF_MAC, DOMAIN
+from .coordinator import replace_device_host
 from .protocol import (
     TclAcClient,
     TclAcDevice,
@@ -197,36 +198,19 @@ def _filter_unconfigured_devices(hass: HomeAssistant, devices: list[Any]) -> lis
 
 
 def _update_configured_host(hass: HomeAssistant, mac: str, host: str) -> bool:
-    """Update a configured device host if the device is already configured."""
+    """Update a configured device host if the device is already configured.
 
-    target_mac = _mac_unique_id(mac)
+    A changed host also reloads the entry. Its coordinators were built with the
+    old host and would keep polling it until Home Assistant restarted.
+    """
+
     for entry in hass.config_entries.async_entries(DOMAIN):
-        if CONF_DEVICES in entry.data:
-            changed = False
-            devices: list[dict[str, Any]] = []
-            found = False
-            for device in entry.data[CONF_DEVICES]:
-                updated = dict(device)
-                if _mac_unique_id(updated[CONF_MAC]) == target_mac:
-                    found = True
-                    if updated.get(CONF_HOST) != host:
-                        updated[CONF_HOST] = host
-                        changed = True
-                devices.append(updated)
-
-            if found:
-                if changed:
-                    data = dict(entry.data)
-                    data[CONF_DEVICES] = devices
-                    hass.config_entries.async_update_entry(entry, data=data)
-                return True
-
-        elif entry.data.get(CONF_MAC) and _mac_unique_id(entry.data[CONF_MAC]) == target_mac:
-            if entry.data.get(CONF_HOST) != host:
-                data = dict(entry.data)
-                data[CONF_HOST] = host
-                hass.config_entries.async_update_entry(entry, data=data)
-            return True
+        data = replace_device_host(entry.data, mac, host)
+        if data is None:
+            continue
+        if hass.config_entries.async_update_entry(entry, data=data):
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+        return True
 
     return False
 
@@ -310,6 +294,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         host = getattr(discovery_info, "ip", None)
         if not host:
             return self.async_abort(reason="not_supported")
+
+        # A configured AC only needs its stored host refreshed. Discovery,
+        # authentication and a state request would otherwise run against every
+        # configured AC each time Home Assistant starts.
+        mac = getattr(discovery_info, "macaddress", None)
+        if mac and _update_configured_host(self.hass, str(mac), str(host)):
+            return self.async_abort(reason="already_configured")
 
         result = await self.hass.async_add_executor_job(
             _accountless_device_configs,
