@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
@@ -19,9 +19,11 @@ package.__path__ = [
 ]
 sys.modules[PACKAGE_NAME] = package
 config_flow = importlib.import_module(f"{PACKAGE_NAME}.config_flow")
+protocol = importlib.import_module(f"{PACKAGE_NAME}.protocol")
 
 MAC = "02:00:00:00:00:01"
 OTHER_MAC = "02:00:00:00:00:02"
+NEW_MAC = "02:00:00:00:00:03"
 KEY = "00112233445566778899aabbccddeeff"
 
 
@@ -108,8 +110,78 @@ class DhcpTests(unittest.IsolatedAsyncioTestCase):
             DhcpServiceInfo(ip="192.0.2.30", hostname="oem_tcliso_000003", macaddress="020000000003")
         )
         self.assertEqual(result["reason"], "not_supported")
-        executor.assert_awaited_once_with(config_flow._accountless_device_configs, ["192.0.2.30"], False)
+        executor.assert_awaited_once_with(
+            config_flow._accountless_device_configs, ["192.0.2.30"], False, "192.0.2.30"
+        )
         self.assertEqual(entries.reloaded, [])
+
+    async def test_new_unit_is_offered_when_a_configured_unit_sorts_first(self):
+        # "192.0.2.10" sorts before "192.0.2.9", so the configured unit comes
+        # first in discovery and used to mask the unit DHCP announced.
+        async def executor(func, *args):
+            return func(*args)
+
+        entries = FakeEntries(both=two_devices())
+        flow = self.flow(entries, executor)
+        flow.context = {}
+        flow.async_set_unique_id = AsyncMock()
+        flow._abort_if_unique_id_configured = MagicMock()
+        found = [
+            protocol.TclAcDiscovery("192.0.2.10", MAC, 0x507C, "Master", False),
+            protocol.TclAcDiscovery("192.0.2.9", NEW_MAC, 0x507A, "Guest room", False),
+        ]
+        with discovering(found) as authenticate:
+            result = await flow.async_step_dhcp(
+                DhcpServiceInfo(ip="192.0.2.9", hostname="oem_tcliso_000003", macaddress="020000000003")
+            )
+        self.assertEqual(result["type"], FlowResultType.FORM)
+        self.assertEqual(result["description_placeholders"]["host"], "192.0.2.9")
+        self.assertEqual(result["description_placeholders"]["mac"], NEW_MAC)
+        authenticate.assert_called_once_with(found[1])
+        self.assertEqual(entries.reloaded, [])
+
+
+def discovering(found):
+    """Patch LAN discovery to return found units, each answering authentication."""
+
+    auth = protocol.TclAcAuth(key=KEY, device_id=1)
+    patches = [
+        patch.object(config_flow, "discover_tcl_ac_devices", return_value=found),
+        patch.object(config_flow, "TclAcClient"),
+    ]
+    authenticate = patch.object(config_flow, "authenticate_tcl_ac_device", return_value=auth)
+
+    class Context:
+        def __enter__(self):
+            for active in patches:
+                active.start()
+            return authenticate.start()
+
+        def __exit__(self, *exc):
+            authenticate.stop()
+            for active in reversed(patches):
+                active.stop()
+
+    return Context()
+
+
+class AccountlessDiscoveryTests(unittest.TestCase):
+    FOUND = [
+        protocol.TclAcDiscovery("192.0.2.20", MAC, 0x507C, "Master", False),
+        protocol.TclAcDiscovery("192.0.2.30", NEW_MAC, 0x507A, "Guest room", False),
+    ]
+
+    def test_only_the_requested_host_is_authenticated(self):
+        with discovering(self.FOUND) as authenticate:
+            result = config_flow._accountless_device_configs(["192.0.2.30"], False, "192.0.2.30")
+        authenticate.assert_called_once_with(self.FOUND[1])
+        self.assertEqual([device["host"] for device in result.devices], ["192.0.2.30"])
+
+    def test_user_discovery_still_authenticates_every_unit(self):
+        with discovering(self.FOUND) as authenticate:
+            result = config_flow._accountless_device_configs(["192.0.2.30"], True)
+        self.assertEqual(authenticate.call_count, 2)
+        self.assertEqual([device["host"] for device in result.devices], ["192.0.2.20", "192.0.2.30"])
 
 
 if __name__ == "__main__":

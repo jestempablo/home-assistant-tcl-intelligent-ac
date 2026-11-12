@@ -228,7 +228,11 @@ def _locked_device_summary(devices: list[TclAcDiscovery]) -> str:
     return ", ".join(f"{device.name} ({device.mac}, {device.host})" for device in devices)
 
 
-def _accountless_device_configs(seed_hosts: list[str], scan_subnet: bool) -> LocalDiscoveryResult:
+def _accountless_device_configs(
+    seed_hosts: list[str],
+    scan_subnet: bool,
+    only_host: str | None = None,
+) -> LocalDiscoveryResult:
     devices: list[dict[str, Any]] = []
     locked_devices: list[TclAcDiscovery] = []
 
@@ -236,6 +240,10 @@ def _accountless_device_configs(seed_hosts: list[str], scan_subnet: bool) -> Loc
         seed_hosts=seed_hosts,
         scan_subnet=scan_subnet,
     ):
+        # Discovery also broadcasts, so every unit on the LAN answers. A caller
+        # asking about one host must not pick or authenticate any other unit.
+        if only_host is not None and discovery.host != only_host:
+            continue
         try:
             auth = authenticate_tcl_ac_device(discovery)
             client = TclAcClient(
@@ -306,6 +314,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _accountless_device_configs,
             [str(host)],
             False,
+            str(host),
         )
         devices = result.devices
         if not devices:
