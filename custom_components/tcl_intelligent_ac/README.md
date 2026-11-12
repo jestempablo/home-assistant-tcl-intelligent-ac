@@ -74,9 +74,9 @@ Then restart Home Assistant and add **TCL Intelligent AC** from **Settings > Dev
 
 Automatic discovery:
 
-Home Assistant can discover supported already-paired devices from DHCP information when their MAC address or hostname matches the tested TCL/BroadLink profile. The discovered flow still validates the device locally with BroadLink authentication before showing it for setup. If DHCP discovery does not appear, use **Local discovery (recommended)** from the normal add-integration flow.
+Home Assistant can discover supported already-paired devices from DHCP information when their MAC address or hostname matches the tested TCL/BroadLink profile. The discovered flow still validates the device locally with BroadLink authentication before showing it for setup. For an AC that is already configured, DHCP discovery only records its current IP address and sends nothing to the AC. If DHCP discovery does not appear, use **Local discovery (recommended)** from the normal add-integration flow.
 
-Discovery hides devices that are already configured. If an already-configured device is found at a new IP address, the integration updates the stored host instead of offering a duplicate setup.
+Discovery hides devices that are already configured. If an already-configured device is found at a new IP address, the integration updates the stored host instead of offering a duplicate setup, then reloads so polling moves to the new address without a Home Assistant restart. A DHCP reservation for each AC avoids address changes altogether.
 
 Recommended setup path for new devices without the app:
 
@@ -195,6 +195,21 @@ Capability flags select protocol options; they do not establish that both airflo
 `host_not_found`: the device was found in the account, but Home Assistant could not resolve or reach it on the LAN. Make sure Home Assistant and the AC are on the same network and that UDP traffic is not blocked.
 
 `cannot_connect`: the integration could not talk to the device with the resolved or manually entered LAN details.
+
+### AC becomes unavailable
+
+Each poll repeats an unanswered request every second for up to 3 seconds, so one lost packet does not make the AC unavailable. After three failed polls in a row (about 1.5 minutes), whether the AC stayed silent or answered with an error, the integration probes it with discovery hellos, sent straight to it and by broadcast, and reads Home Assistant's ARP table. It then logs one warning: `<name> at <IP> has not returned its state for <time> (last error: <error>):` followed by what still answers. Probes run at most once every 10 minutes, and the warning repeats only when the result changes. When the AC returns its state again, the integration logs how long the problem lasted.
+
+| End of the warning | Meaning |
+|---|---|
+| `it still answers discovery…` | The module is online, but its local control service is not working. Switching the AC off and on at the mains has cleared this. |
+| `…but not a broadcast one…` | The module answers requests sent straight to it but may have stopped receiving Wi-Fi broadcasts. If this repeats, try Proxy ARP for that SSID on the access point. The same result is expected when Home Assistant's broadcasts cannot reach the AC's network, for example from another interface or VLAN. |
+| `it answers ARP but not discovery…` | The module is online, but nothing answers on UDP port 80. |
+| `the address now resolves to another MAC…` | Another device took the address. Check the router's DHCP leases. Range extenders that rewrite MAC addresses also produce this. |
+| `it answers neither ARP nor discovery…` | The AC is off, out of Wi-Fi range, or not receiving broadcasts. If the router still lists it as connected, the last is likely. |
+| `it answers neither a direct nor a broadcast discovery hello` | As above, on hosts where the ARP table cannot be read. |
+
+If the AC answers discovery from a new address, the integration logs `<name> answered discovery at <new IP> instead of <old IP>`, then polls and stores the new address.
 
 Known cloud setup errors:
 

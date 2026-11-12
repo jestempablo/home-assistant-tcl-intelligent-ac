@@ -20,7 +20,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         devices = [entry.data]
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = [
-        runtime_from_config(hass, device)
+        runtime_from_config(hass, device, entry)
         for device in devices
     ]
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

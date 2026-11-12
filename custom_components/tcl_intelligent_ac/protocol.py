@@ -7,7 +7,9 @@ import math
 import os
 import socket
 import struct
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from typing import Any
@@ -27,14 +29,34 @@ BROADLINK_INIT_KEY = bytes.fromhex("097628343fe99e23765c1513accf8b02")
 RESPONSE_COMMAND = 0x03EE
 DEFAULT_PORT = 80
 DEFAULT_TIMEOUT = 3.0
+# A request is sent again at this interval until a reply arrives or the request
+# times out, so one lost datagram on a 2.4 GHz link does not fail the request.
+RESEND_INTERVAL = 1.0
+PROBE_TIMEOUT = 1.5
+BROADCAST_ADDRESS = "255.255.255.255"
+ARP_TABLE = "/proc/net/arp"
+ARP_COMPLETE_FLAG = 0x02
 DISCOVERY_PAYLOAD = bytes.fromhex(
     "5aa5aa555aa5aa5502000000ea07041f0a001805000000001002000a688d0000ffc40000000006000000000000000000"
 )
 KNOWN_MAC_PREFIXES = ("24dfa7", "34ea34", "ec0bae", "b4430d", "a043b0")
 
+# What a device that stopped answering control requests still answers.
+LINK_MOVED = "moved"  # a broadcast hello is answered from another address
+LINK_CONTROL_STUCK = "control_stuck"  # hellos are answered at the configured address
+LINK_NO_BROADCAST = "no_broadcast"  # only the hello sent straight to the address is answered
+LINK_ARP_ONLY = "arp_only"  # ARP resolves the address to the device, hellos go unanswered
+LINK_ADDRESS_TAKEN = "address_taken"  # ARP resolves the address to another device
+LINK_UNREACHABLE = "unreachable"  # ARP does not resolve the address
+LINK_SILENT = "silent"  # hellos go unanswered and the ARP table is unavailable
+
 
 class TclAcError(Exception):
     """Raised when local AC communication fails."""
+
+
+class TclAcConnectionError(TclAcError):
+    """Raised when a device does not answer or cannot be reached."""
 
 
 class TclAcAuthError(TclAcError):
@@ -88,6 +110,20 @@ class TclAcAuth:
     device_id: int
 
 
+@dataclass(frozen=True)
+class TclAcProbe:
+    """What a device that stopped answering control requests still answers."""
+
+    address: str
+    """Configured host, resolved to an IPv4 address when possible."""
+    direct: bool
+    """Whether a discovery hello sent straight to the address was answered."""
+    broadcast_host: str | None
+    """Address that answered a broadcast discovery hello for this MAC."""
+    arp_mac: str | None
+    """ARP entry for the address: its MAC, "" if unresolved, None if unknown."""
+
+
 class TclAcClient:
     """Small synchronous local client for TCL Intelligent AC devices."""
 
@@ -95,6 +131,9 @@ class TclAcClient:
         self.device = device
         self._key = _parse_key(device.key)
         self._mac_reversed = _parse_mac(device.mac)[::-1]
+        # Requests are resent while unanswered. Serialising them keeps a late
+        # repeat of an older write from landing after a newer write.
+        self._lock = threading.Lock()
 
     def get_state(self) -> dict[str, Any]:
         """Read the current raw state from the device."""
@@ -115,13 +154,11 @@ class TclAcClient:
         plain = self._encode_inner_payload(action, body)
         packet = self._build_packet(plain)
 
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.settimeout(self.device.timeout)
-            sock.sendto(packet, (self.device.host, self.device.port))
-            try:
-                response, _ = sock.recvfrom(2048)
-            except TimeoutError as exc:
-                raise TclAcError(f"Timeout waiting for {self.device.host}:{self.device.port}") from exc
+        with self._lock:
+            # Read the device inside the lock: the coordinator may have moved
+            # it to a new host while this request waited.
+            device = self.device
+            response, _ = _exchange((device.host, device.port), packet, device.timeout)
 
         return self._decode_response(response)
 
@@ -407,6 +444,87 @@ def find_device_host(
     return None
 
 
+def probe_device(host: str, mac: str, timeout: float = PROBE_TIMEOUT) -> TclAcProbe:
+    """Check what a device that ignores control requests still answers.
+
+    Sends the discovery hello used by local discovery, first straight to the
+    host and then by broadcast, and reads the ARP entry for the host. Hellos
+    have no side effects on the device.
+    """
+
+    target_mac = normalize_mac(mac)
+    try:
+        address = socket.gethostbyname(host)
+    except OSError:
+        address = host
+
+    def from_device(reply: bytes, sender: str) -> bool:
+        discovery = _parse_discovery_response(reply, sender)
+        return discovery is not None and discovery.mac == target_mac
+
+    def hello(destination: str) -> str | None:
+        try:
+            _, sender = _exchange(
+                (destination, DEFAULT_PORT),
+                DISCOVERY_PAYLOAD,
+                timeout,
+                accept=from_device,
+                broadcast=destination == BROADCAST_ADDRESS,
+            )
+        except TclAcConnectionError:
+            return None
+        return sender
+
+    direct = hello(address) is not None
+    broadcast_host = hello(BROADCAST_ADDRESS)
+    return TclAcProbe(
+        address=address,
+        direct=direct,
+        broadcast_host=broadcast_host,
+        arp_mac=read_arp_mac(address),
+    )
+
+
+def diagnose_probe(probe: TclAcProbe, mac: str) -> str:
+    """Name the failure mode a probe of a silent device points to."""
+
+    if probe.direct:
+        return LINK_CONTROL_STUCK if probe.broadcast_host else LINK_NO_BROADCAST
+    if probe.broadcast_host:
+        return LINK_CONTROL_STUCK if probe.broadcast_host == probe.address else LINK_MOVED
+    if probe.arp_mac is None:
+        return LINK_SILENT
+    if not probe.arp_mac:
+        return LINK_UNREACHABLE
+    return LINK_ARP_ONLY if probe.arp_mac == normalize_mac(mac) else LINK_ADDRESS_TAKEN
+
+
+def read_arp_mac(address: str, path: str | None = None) -> str | None:
+    """Return the MAC this host's ARP table holds for an address.
+
+    Returns "" when the entry is unresolved, and None when the table cannot be
+    read (it exists only on Linux) or has no entry for the address.
+    """
+
+    try:
+        with open(path or ARP_TABLE, encoding="ascii") as table:
+            rows = [line.split() for line in table.readlines()[1:]]
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    found = False
+    for row in rows:
+        if len(row) < 4 or row[0] != address:
+            continue
+        found = True
+        try:
+            if int(row[2], 16) & ARP_COMPLETE_FLAG:
+                return normalize_mac(row[3])
+        except ValueError:
+            continue
+    return "" if found else None
+
+
 def _checksum(payload: bytes) -> int:
     value = 0xBEAF
     for byte in payload:
@@ -433,6 +551,46 @@ def _aes_cbc_encrypt(payload: bytes, key: bytes) -> bytes:
 def _aes_cbc_decrypt(payload: bytes, key: bytes) -> bytes:
     decryptor = Cipher(algorithms.AES(key), modes.CBC(IV)).decryptor()
     return decryptor.update(payload) + decryptor.finalize()
+
+
+def _exchange(
+    target: tuple[str, int],
+    packet: bytes,
+    timeout: float,
+    accept: Callable[[bytes, str], bool] | None = None,
+    broadcast: bool = False,
+) -> tuple[bytes, str]:
+    """Send a datagram and return the first accepted reply and its sender.
+
+    The same datagram goes out again every RESEND_INTERVAL seconds until a reply
+    arrives or the timeout expires. Repeating it is safe: state requests and
+    discovery hellos have no side effects, and writes set absolute values.
+    """
+
+    host, port = target
+    deadline = time.monotonic() + timeout
+    next_send = time.monotonic()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        if broadcast:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        while (now := time.monotonic()) < deadline:
+            if now >= next_send:
+                try:
+                    sock.sendto(packet, target)
+                except OSError as exc:
+                    raise TclAcConnectionError(f"Cannot send to {host}:{port}: {exc}") from exc
+                next_send = now + RESEND_INTERVAL
+            sock.settimeout(max(min(next_send, deadline) - now, 0.001))
+            try:
+                reply, sender = sock.recvfrom(2048)
+            except TimeoutError:
+                continue
+            except OSError as exc:
+                raise TclAcConnectionError(f"Cannot receive from {host}:{port}: {exc}") from exc
+            if accept is None or accept(reply, sender[0]):
+                return reply, sender[0]
+
+    raise TclAcConnectionError(f"Timeout waiting for {host}:{port}")
 
 
 def _send_udp(host: str, port: int, packet: bytes, timeout: float) -> bytes:
