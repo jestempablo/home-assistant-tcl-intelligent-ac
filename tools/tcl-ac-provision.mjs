@@ -17,6 +17,10 @@ const MAGIC = Buffer.from("5aa5aa555aa5aa55", "hex");
 const INNER_MAGIC = Buffer.from("a5a55a5a", "hex");
 const DEFAULT_PORT = 80;
 const TCL_DEVICE_TYPE = 0x507c;
+// The app writes a region-specific type while pairing: United States / Other 0x507c,
+// Europe 0x507a. Requests here carry the discovered type; one 0x507a unit answered
+// under both a 0x507a and a 0x507c header (#10).
+const SUPPORTED_DEVICE_TYPES = new Set([TCL_DEVICE_TYPE, 0x507a]);
 const BROADLINK_AUTH_COMMAND = 0x0065;
 const TCL_COMMAND = 0x006a;
 const RESPONSE_COMMAND = 0x03ee;
@@ -709,7 +713,7 @@ function parseDiscoveryResponse(message, host) {
   const mac = reverseMac(message.subarray(0x3a, 0x40));
   const name = cleanAscii(message.subarray(0x40).toString("latin1").split("\0")[0] || "");
   const isKnownMac = KNOWN_MAC_PREFIXES.some((prefix) => mac.toLowerCase().startsWith(prefix));
-  if (!isKnownMac && devtype !== TCL_DEVICE_TYPE) return null;
+  if (!isKnownMac && !SUPPORTED_DEVICE_TYPES.has(devtype)) return null;
   return {
     host,
     devtype,
@@ -1109,7 +1113,7 @@ async function discoverLanDevices(timeoutMs = 5000, seedHosts = []) {
   for (const response of responses) {
     if (!response.discovery) continue;
     const devtype = Number.parseInt(response.discovery.devtype, 16);
-    if (devtype !== TCL_DEVICE_TYPE) continue;
+    if (!SUPPORTED_DEVICE_TYPES.has(devtype)) continue;
     devicesByMac.set(response.discovery.mac, {
       host: response.from.split(":")[0],
       devtype,
