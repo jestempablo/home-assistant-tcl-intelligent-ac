@@ -293,4 +293,4 @@ python -m pip install -r requirements-test.txt
 python -m unittest discover -s tests -v
 ```
 
-Entity tests use Home Assistant 2026.8.3 and mock only the device/coordinator boundary. They cover command mappings, capability gating, preserving the other airflow axis, legacy identities and drying behaviour. The cached diagnostics subset needs only the standard library: `python -m unittest discover -s tests -p test_diagnostics.py -v`. Neither suite contacts a device. GitHub Actions also runs HACS and hassfest validation; these checks do not replace physical testing on a real AC.
+Entity tests use Home Assistant 2026.11.1 and mock only the device/coordinator boundary. They cover command mappings, capability gating, preserving the other airflow axis, legacy identities, drying behaviour and temperatures. The cached diagnostics subset needs only the standard library: `python -m unittest discover -s tests -p test_diagnostics.py -v`. Neither suite contacts a device. GitHub Actions also runs HACS and hassfest validation; these checks do not replace physical testing on a real AC.

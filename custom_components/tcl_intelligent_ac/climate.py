@@ -98,7 +98,7 @@ class TclIntelligentAcClimate(CoordinatorEntity[TclAcCoordinator], ClimateEntity
 
     _attr_has_entity_name = True
     _attr_name = None
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 1.0
     _attr_min_temp = 16.0
     _attr_max_temp = 31.0
@@ -130,18 +130,37 @@ class TclIntelligentAcClimate(CoordinatorEntity[TclAcCoordinator], ClimateEntity
         return self.coordinator.data or {}
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return current room temperature."""
 
         value = self._state.get("envtemp")
         return float(value) if isinstance(value, int | float) else None
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return target temperature."""
 
         value = self._state.get("temp")
         return float(value) / 10 if isinstance(value, int | float) else None
+
+    # Home Assistant 2026.11 added the native_ names above and warns about classes
+    # that provide only the old names below. Older releases, down to the 2025.1.0
+    # minimum in hacs.json, read only the old names. A class providing both gets the
+    # native names without a warning. Remove this block once hacs.json requires
+    # 2026.11.0 or later.
+    _attr_temperature_unit = _attr_native_temperature_unit
+
+    @property
+    def current_temperature(self) -> float | None:
+        """Return current room temperature to Home Assistant before 2026.11."""
+
+        return self.native_current_temperature
+
+    @property
+    def target_temperature(self) -> float | None:
+        """Return target temperature to Home Assistant before 2026.11."""
+
+        return self.native_target_temperature
 
     @property
     def hvac_mode(self) -> HVACMode:

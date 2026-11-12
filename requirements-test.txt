@@ -1,2 +1,2 @@
 # Entity regressions run against the version used for the live installation.
-homeassistant==2026.8.3
+homeassistant==2026.11.1

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
 
+from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 # Load the actual platforms without setting up HA or opening device sockets.
 PACKAGE_NAME = "tcl_controls_test"
@@ -41,6 +44,25 @@ def select_entity(device, key):
 def switch_entity(device, key):
     description = next(d for d in switch.SWITCH_DESCRIPTIONS if d.key == key)
     return switch.TclAcSwitch(device, description)
+
+
+def climate_entity(units, **state):
+    device = runtime(**state)
+    entity = climate.TclIntelligentAcClimate(device)
+    entity.hass = SimpleNamespace(config=SimpleNamespace(units=units))
+    return device, entity
+
+
+def import_climate_again():
+    """Import climate.py under a new package, so the entity class is created anew."""
+
+    name = f"{PACKAGE_NAME}_again"
+    for module in [m for m in sys.modules if m == name or m.startswith(f"{name}.")]:
+        del sys.modules[module]
+    again = ModuleType(name)
+    again.__path__ = package.__path__
+    sys.modules[name] = again
+    return importlib.import_module(f"{name}.climate")
 
 
 class AirflowTests(unittest.IsolatedAsyncioTestCase):
@@ -161,6 +183,56 @@ class AirflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entity.options, ["off", "normal", "senior", "child", "custom"])
         await entity.async_select_option("child")
         device.coordinator.async_set_param.assert_awaited_once_with("tcl_slp", 3)
+
+
+class TemperatureTests(unittest.IsolatedAsyncioTestCase):
+    """Home Assistant 2026.11 renamed the temperature API; both names must agree."""
+
+    def test_climate_class_provides_no_deprecated_temperature_api(self):
+        # 2026.11 and later log a warning for each deprecated name the class provides.
+        with self.assertNoLogs(level=logging.WARNING):
+            again = import_climate_again()
+        self.assertIsNot(again.TclIntelligentAcClimate, climate.TclIntelligentAcClimate)
+
+    def test_celsius_and_tenths_reach_home_assistant_unchanged(self):
+        # 22 °C room and 24.5 °C target, limits 16-31 °C, shown as whole °F in US units.
+        for units, current, target, minimum, maximum in (
+            (METRIC_SYSTEM, 22.0, 24.5, 16.0, 31.0),
+            (US_CUSTOMARY_SYSTEM, 72, 76, 61, 88),
+        ):
+            with self.subTest(unit=units.temperature_unit):
+                _, entity = climate_entity(units, envtemp=22, temp=245)
+                state = entity.state_attributes
+                self.assertEqual(state["current_temperature"], current)
+                self.assertEqual(state["temperature"], target)
+                capabilities = entity.capability_attributes
+                self.assertEqual(capabilities["min_temp"], minimum)
+                self.assertEqual(capabilities["max_temp"], maximum)
+                self.assertEqual(capabilities["target_temp_step"], 1.0)
+
+    def test_old_names_still_serve_releases_before_2026_11(self):
+        # Those releases read only the old names. 2026.11 and later warn on reading
+        # one the class does not provide itself, so this fails on any release if
+        # the class stops providing them.
+        _, entity = climate_entity(METRIC_SYSTEM, envtemp=22, temp=245)
+        with self.assertNoLogs(level=logging.WARNING):
+            self.assertEqual(entity._attr_temperature_unit, UnitOfTemperature.CELSIUS)
+            self.assertEqual(entity.current_temperature, 22.0)
+            self.assertEqual(entity.target_temperature, 24.5)
+
+    def test_missing_or_invalid_readings_stay_unknown(self):
+        _, entity = climate_entity(METRIC_SYSTEM, envtemp=None, temp="245")
+        self.assertIsNone(entity.state_attributes["current_temperature"])
+        self.assertIsNone(entity.state_attributes["temperature"])
+        self.assertIsNone(entity.current_temperature)
+        self.assertIsNone(entity.target_temperature)
+
+    async def test_set_temperature_writes_celsius_tenths(self):
+        device, entity = climate_entity(METRIC_SYSTEM, temp=220)
+        await entity.async_set_temperature()
+        device.coordinator.async_set_param.assert_not_awaited()
+        await entity.async_set_temperature(temperature=24.5)
+        device.coordinator.async_set_param.assert_awaited_once_with("temp", 245)
 
 
 class DryingTests(unittest.IsolatedAsyncioTestCase):
